@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Connection</title>
+</head>
+<body>
+    <h1>WebSocket Connection to 192.168.1.54:80</h1>
+    <div id="status">Connecting...</div>
+    <script>
+        const socket = new WebSocket('ws://192.168.1.54:80');
+
+        socket.onopen = function(event) {
+            document.getElementById('status').innerText = 'Connected';
+            // socket.send("hello")
+        };
+
+        socket.onmessage = function(event) {
+            console.log('Message from server: ', event.data);
+        };
+
+        socket.onclose = function(event) {
+            document.getElementById('status').innerText = 'Disconnected';
+        };
+
+        socket.onerror = function(error) {
+            document.getElementById('status').innerText = 'Error: ' + error.message;
+        };
+    </script>
+</body>
+</html>
