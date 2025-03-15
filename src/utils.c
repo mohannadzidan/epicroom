@@ -1,7 +1,7 @@
 #include "utils.h"
 #include <string.h>
 #include <stdint.h>
-#include "lib/sha1/sha1.h"
+#include "sha1.h"
 
 // SHA-1 implementation (simplified for embedded systems)
 void mbedtls_sha1(const unsigned char *input, size_t ilen, unsigned char output[20])

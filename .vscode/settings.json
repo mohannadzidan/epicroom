@@ -97,6 +97,22 @@
         "tcp.h": "c",
         "sha1.h": "c",
         "fstream": "c",
-        "sstream": "c"
+        "sstream": "c",
+        "cassert": "cpp",
+        "cerrno": "cpp",
+        "cfloat": "cpp",
+        "climits": "cpp",
+        "map": "cpp",
+        "set": "cpp",
+        "iomanip": "cpp",
+        "cfenv": "cpp",
+        "bitset": "cpp",
+        "ranges": "cpp",
+        "stacktrace": "cpp",
+        "regex": "cpp",
+        "valarray": "cpp",
+        "print": "cpp",
+        "shared_mutex": "cpp",
+        "stop_token": "cpp"
     }
 }

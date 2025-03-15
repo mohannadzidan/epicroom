@@ -11,9 +11,10 @@
     <script>
         const socket = new WebSocket('ws://192.168.1.54:80');
 
+
         socket.onopen = function(event) {
             document.getElementById('status').innerText = 'Connected';
-            // socket.send("hello")
+            // socket.send("hello")     // Uncomment this line to send a message to the server                          
         };
 
         socket.onmessage = function(event) {
