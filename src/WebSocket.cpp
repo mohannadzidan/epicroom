@@ -1,7 +1,9 @@
 #include <stdio.h>
 #include "WebSocket.h"
+#include "WSHeader.h"
 #include "TCPServer.h"
 #include "utils.h"
+
 
 WebSocket::WebSocket() {}
 
@@ -129,76 +131,31 @@ void WebSocket::handle_frame(struct TCPConnection *connection, struct tcp_pcb *t
     }
 }
 
+u8_t getWSHeaderSize()
+{
+    u8_t size = 2;
+    if (header.basic.length == 126)
+    {
+        size += 2;
+    }
+    else if (header.basic.length == 127)
+    {
+        size += 8;
+    }
+    if (header.basic.mask)
+    {
+        size += 4;
+    }
+    return size;
+}
+
 void WebSocket::send_frame(struct TCPConnection *connection, const uint8_t *data, size_t len, uint8_t opcode)
 {
-
     header.basic.fin = 1;
     header.basic.rsv = 0;
     header.basic.opcode = opcode;
     header.basic.mask = 0;
-    header.basic.length = 0;
-    u8_t header_len = 2;
-    if (len > 127)
-    {
-        header_len += 8;
-        header.ext64.length = 127;
-        header.ext64.extended_length = len >> 7;
-        // send extended 64-bit length
-
-        // FIXME: send extended 64-bit length
-
-        return;
-    }
-    else if (len == 126)
-    {
-        header_len += 2;
-        header.ext16.length = 126;
-        header.ext16.extended_length = len >> 7;
-        // send extended 16-bit length
-        // FIXME: send extended 16-bit length
-        return;
-    }
-    else
-    {
-        header.basic.length = len;
-    }
-
-    // uint8_t header[10];
-
-    // header[0] = 0x80 | (opcode & 0x0F); // FIN bit set and opcode
-    // if (len <= 125)
-    // {
-    //     header[1] = len;
-    // }
-    // else if (len <= 65535)
-    // {
-    //     header[1] = 126;
-    //     header[2] = (len >> 8) & 0xFF;
-    //     header[3] = len & 0xFF;
-    //     header_len += 2;
-    // }
-    // else
-    // {
-    //     header[1] = 127;
-    //     header[2] = (len >> 56) & 0xFF;
-    //     header[3] = (len >> 48) & 0xFF;
-    //     header[4] = (len >> 40) & 0xFF;
-    //     header[5] = (len >> 32) & 0xFF;
-    //     header[6] = (len >> 24) & 0xFF;
-    //     header[7] = (len >> 16) & 0xFF;
-    //     header[8] = (len >> 8) & 0xFF;
-    //     header[9] = len & 0xFF;
-    //     header_len += 8;
-    // }
-
-    printf("Sending WebSocket frame fin=%d rsv=%d opcode=%d mask=%d length=%d\n",
-           header.basic.fin,
-           header.basic.rsv,
-           header.basic.opcode,
-           header.basic.mask,
-           header.basic.length);
-    // printf("Sending WebSocket frame %x\n", reinterpret_cast<u8_t *>(&header)[0]);
-    // printf("Sending WebSocket frame %x\n", reinterpret_cast<u8_t *>(&header)[1]);
-    connection->write(&header, header_len, TCP_WRITE_FLAG_COPY | TCP_WRITE_FLAG_MORE);
+    header.setPayloadLength(len);
+    connection->write(&header, header.size(), TCP_WRITE_FLAG_COPY | TCP_WRITE_FLAG_MORE);
     connection->write(data, len);
 }
