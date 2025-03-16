@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include "TCPServer.h"
 #include "WebSocket.h"
+#include "pico/cyw43_arch.h"
+#include "log.h"
 
 err_t TCPConnection::write(const void *buffer_send, size_t send_len, u8_t flags)
 {
@@ -8,7 +10,7 @@ err_t TCPConnection::write(const void *buffer_send, size_t send_len, u8_t flags)
     err_t err = tcp_write(this->client_pcb, buffer_send, send_len, flags);
     if (err != ERR_OK)
     {
-        printf("Failed to write data %d\n", err);
+        log_e("Failed to write data %d\n", err);
     }
     return err;
 }
@@ -28,10 +30,11 @@ err_t TCPConnection::close()
         tcp_sent(this->client_pcb, NULL);
         tcp_recv(this->client_pcb, NULL);
         tcp_err(this->client_pcb, NULL);
+        char *ip = ip4addr_ntoa(&this->client_pcb->remote_ip);
         err = tcp_close(this->client_pcb);
         if (err != ERR_OK)
         {
-            printf("Close failed %d, calling abort\n", err);
+            log_e("Close failed %d, calling abort\n", err);
             tcp_abort(this->client_pcb);
             err = ERR_ABRT;
         }
@@ -56,7 +59,7 @@ TCPServer::TCPServer()
     // state = (TCPConnection *)calloc(1, sizeof(TCPConnection));
     // if (!state)
     // {
-    //     printf("Failed to allocate state\n");
+    //     log_e("Failed to allocate state\n");
     // }
 }
 
@@ -75,28 +78,28 @@ bool TCPServer::open(u16_t port)
     pcb = tcp_new_ip_type(IPADDR_TYPE_ANY);
     if (!pcb)
     {
-        printf("Failed to create PCB\n");
+        log_e("Failed to create PCB\n");
         return false;
     }
 
     err_t err = tcp_bind(pcb, NULL, port);
     if (err)
     {
-        printf("Failed to bind to port %u\n", port);
+        log_e("Failed to bind to port %u\n", port);
         return false;
     }
 
     pcb = tcp_listen_with_backlog(pcb, 1);
     if (!pcb)
     {
-        printf("Failed to listen\n");
+        log_e("Failed to listen\n");
         tcp_close(pcb);
         return false;
     }
 
     tcp_arg(pcb, this);
     tcp_accept(pcb, &TCPServer::accept);
-    printf("TCP server started on %s:%u\n", ip4addr_ntoa(&ip), port);
+    log_i("TCP server started on %s:%u\n", ip4addr_ntoa(&ip), port);
     return true;
 }
 
@@ -118,17 +121,14 @@ err_t TCPServer::accept(void *serverPointer, tcp_pcb *client_pcb, err_t err)
 
     if (err != ERR_OK || client_pcb == NULL)
     {
-        printf("Failure in accept\n");
+        log_e("Failure in accept\n");
         return ERR_VAL;
     }
-
-    printf("Client connected\n");
     TCPServer *server = (TCPServer *)serverPointer;
-    printf("the passed server  %p\n", server);
     TCPConnection *conn = server->allocConnection();
     if (!conn)
     {
-        printf("Failed to allocate connection\n");
+        log_e("Failed to allocate connection\n");
         return ERR_MEM;
     }
 
@@ -147,7 +147,7 @@ err_t TCPServer::recv(void *connectionPtr, tcp_pcb *tpcb, pbuf *data, err_t err)
 
     if (!data)
     {
-        printf("Client closed the connection\n");
+        log_d("Client closed the connection\n");
         connection->close();
         return ERR_OK;
     }
@@ -163,7 +163,6 @@ err_t TCPServer::recv(void *connectionPtr, tcp_pcb *tpcb, pbuf *data, err_t err)
     {
         if (!WebSocket::handle_handshake(connection, tpcb, (const char *)connection->buffer_recv, connection->recv_len))
         {
-            printf("WebSocket handshake failed\n");
             char response[32];
             snprintf(response, sizeof(response), "HTTP/1.1 418 I'm a teapot\r\n");
             connection->write(response, sizeof(response));

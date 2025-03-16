@@ -113,6 +113,7 @@
         "valarray": "cpp",
         "print": "cpp",
         "shared_mutex": "cpp",
-        "stop_token": "cpp"
+        "stop_token": "cpp",
+        "expected": "cpp"
     }
 }

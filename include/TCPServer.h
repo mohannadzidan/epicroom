@@ -1,14 +1,6 @@
 #ifndef TCP_H
 #define TCP_H
-#include <bits/stdc++.h>
-
-#include "pico/stdlib.h"
-#include "pico/cyw43_arch.h"
-#include "lwip/pbuf.h"
 #include "lwip/tcp.h"
-#include <string>
-#include <cstdlib>
-#include <cstdio>
 
 #define BUF_SIZE 2048
 

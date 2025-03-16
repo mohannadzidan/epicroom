@@ -1,7 +1,7 @@
 
 #include "WSHeader.h"
 
-size_t WSHeader::getPayloadLength()
+size_t WSHeader::getPayloadLength() const
 {
     if (basic.length == 126)
     {
@@ -48,21 +48,36 @@ void WSHeader::setMaskingKey(u32_t key)
     }
 }
 
-u8_t WSHeader::size()
+u32_t WSHeader::getMaskingKey() const
 {
-    u8_t size = 2;
+    if (basic.length > 127)
+    {
+        return ext64.masking_key;
+    }
+    else if (basic.length == 126)
+    {
+        return ext16.masking_key;
+    }
+    else
+    {
+        return basic.masking_key;
+    }
+}
+
+u8_t WSHeader::size() const
+{
+    u8_t size = WS_HEADER_SIZE;
     if (basic.length == 126)
     {
-        size += 2;
-       
+        size = WS_HEADER_EXT16_SIZE;
     }
     else if (basic.length == 127)
     {
-        size += 8;
+        size = WS_HEADER_EXT64_SIZE;
     }
     if (basic.mask)
     {
-        size += 4;
+        size += WS_HEADER_MASKING_KEY_SIZE;
     }
     return size;
 }

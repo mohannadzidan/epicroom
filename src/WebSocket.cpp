@@ -1,22 +1,39 @@
-#include <stdio.h>
+#include <string.h>
 #include "WebSocket.h"
 #include "WSHeader.h"
 #include "TCPServer.h"
 #include "utils.h"
+#include "log.h"
 
+#define ARROW_TX "--ws->"
+#define ARROW_RX "<-ws--"
+#define ARROW_SP "      "
+#define log_t_rx(tag, message, ...) log_t(ARROW_RX " %s -- " message, tag, ##__VA_ARGS__)
+#define log_t_rx_cont(tag, message, ...) log_t(ARROW_SP " %s -- " message, tag, ##__VA_ARGS__)
+#define log_t_tx(tag, message, ...) log_t(ARROW_TX " %s -- " message, tag, ##__VA_ARGS__)
+#define log_t_tx_cont(tag, message, ...) log_t(ARROW_SP " %s -- " message, tag, ##__VA_ARGS__)
 
-WebSocket::WebSocket() {}
+#define opcode_name(opcode) (opcode == WS_OPCODE_TEXT_FRAME     ? "text"   \
+                             : opcode == WS_OPCODE_BINARY_FRAME ? "binary" \
+                             : opcode == WS_OPCODE_PING         ? "ping"   \
+                             : opcode == WS_OPCODE_PONG         ? "pong"   \
+                             : opcode == WS_OPCODE_CLOSE        ? "close"  \
+                             : opcode == WS_OPCODE_CONTINUE     ? "cont"   \
+                                                                : "invalid")
+
+WebSocket::WebSocket()
+{
+}
 
 WSHeader header;
 
 bool WebSocket::handle_handshake(struct TCPConnection *connection, struct tcp_pcb *tpcb, const char *data, size_t len)
 {
-    printf("connection is %p\n", connection);
     const char *key_header = "Sec-WebSocket-Key: ";
     const char *key_start = strstr(data, key_header);
     if (!key_start)
     {
-        printf("No WebSocket key found\n");
+        // No WebSocket key found, assume it's not a WebSocket connection
         return false;
     }
 
@@ -24,7 +41,7 @@ bool WebSocket::handle_handshake(struct TCPConnection *connection, struct tcp_pc
     const char *key_end = strstr(key_start, "\r\n");
     if (!key_end)
     {
-        printf("Invalid WebSocket key format\n");
+        // Invalid WebSocket key format
         return false;
     }
 
@@ -32,7 +49,7 @@ bool WebSocket::handle_handshake(struct TCPConnection *connection, struct tcp_pc
     size_t key_len = key_end - key_start;
     if (key_len >= sizeof(key))
     {
-        printf("WebSocket key too long\n");
+        // WebSocket key too long
         return false;
     }
     memcpy(key, key_start, key_len);
@@ -48,7 +65,7 @@ bool WebSocket::handle_handshake(struct TCPConnection *connection, struct tcp_pc
     size_t accept_len = base64_encode(sha1, sizeof(sha1), accept_key, sizeof(accept_key));
     if (accept_len == 0)
     {
-        printf("Failed to encode WebSocket accept key\n");
+        // Failed to encode WebSocket accept key
         return false;
     }
 
@@ -61,101 +78,112 @@ bool WebSocket::handle_handshake(struct TCPConnection *connection, struct tcp_pc
              accept_key);
     connection->write(response, strlen(response));
     connection->is_websocket = true;
-    printf("WebSocket handshake completed\n");
     return true;
 }
 
-void WebSocket::handle_frame(struct TCPConnection *connection, struct tcp_pcb *tpcb, const uint8_t *data, size_t len)
+void WebSocket::handle_frame(struct TCPConnection *connection, struct tcp_pcb *tpcb, uint8_t *data, size_t len)
 {
-    if (len < 2)
+
+    if (len < WS_HEADER_SIZE)
     {
-        printf("Invalid WebSocket frame\n");
+        // Invalid WebSocket frame
         return;
     }
-
-    uint8_t opcode = data[0] & 0x0F;
-    bool is_masked = (data[1] & 0x80) != 0;
-    uint64_t payload_len = data[1] & 0x7F;
-
-    size_t header_len = 2;
-    if (payload_len == 126)
+    WSHeader *header = reinterpret_cast<WSHeader *>(data);
+    if (len < header->size())
     {
-        if (len < 4)
-        {
-            printf("Invalid WebSocket frame (126)\n");
-            return;
-        }
-        payload_len = (data[2] << 8) | data[3];
-        header_len += 2;
+        // malformed frame
+        return;
     }
-    else if (payload_len == 127)
-    {
-        if (len < 10)
-        {
-            printf("Invalid WebSocket frame (127)\n");
-            return;
-        }
-        payload_len = ((uint64_t)data[2] << 56) | ((uint64_t)data[3] << 48) |
-                      ((uint64_t)data[4] << 40) | ((uint64_t)data[5] << 32) |
-                      ((uint64_t)data[6] << 24) | ((uint64_t)data[7] << 16) |
-                      ((uint64_t)data[8] << 8) | data[9];
-        header_len += 8;
-    }
+    WSConnection *ws = reinterpret_cast<WSConnection *>(connection);
+    size_t payload_len = header->getPayloadLength();
+    u8_t *payload = (u8_t *)&data[header->size()];
+    u32_t masking_key_offset = reinterpret_cast<uint8_t *>(&header->basic.masking_key) - reinterpret_cast<uint8_t *>(header);
 
-    if (is_masked)
-    {
-        if (len < header_len + 4)
-        {
-            printf("Invalid WebSocket frame (mask)\n");
-            return;
-        }
-        const uint8_t *mask = &data[header_len];
-        header_len += 4;
+    log_t_rx(opcode_name(header->basic.opcode),
+             "src=%s:%d len=%u \n",
+             ip4addr_ntoa(&tpcb->remote_ip),
+             tpcb->remote_port,
+             len);
 
-        uint8_t *payload = (uint8_t *)&data[header_len];
-        for (size_t i = 0; i < payload_len; i++)
-        {
-            payload[i] ^= mask[i % 4];
-        }
+    switch (header->basic.opcode)
+    {
+    case WS_OPCODE_CLOSE:
+        ws->closed = 1;
+        ws->close();
+        return;
+    case WS_OPCODE_PING:
+        ws->pong();
+    case WS_OPCODE_PONG:
+        return;
+    default:
+        break;
     }
 
-    if (opcode == WS_OPCODE_TEXT_FRAME)
+    if (header->basic.mask)
     {
-        printf("Received WebSocket text frame: %.*s\n", (int)payload_len, &data[header_len]);
-        connection->write(&data[header_len], payload_len);
+        apply_mask(payload, payload_len, header->getMaskingKey());
     }
-    else if (opcode == WS_OPCODE_CLOSE)
+
+#if LOGGING_LEVEL >= LOGGING_LEVEL_TRACE
+    if (header->basic.opcode == WS_OPCODE_TEXT_FRAME)
     {
-        printf("WebSocket connection closed by client\n");
-        connection->close();
+        log_t_rx_cont("data", "string=\"%.*s\"\n", payload_len, payload);
     }
+    else if (header->basic.opcode == WS_OPCODE_BINARY_FRAME)
+    {
+        log_t_rx_cont("data", "binary\n");
+    }
+#endif
 }
 
-u8_t getWSHeaderSize()
+void WebSocket::apply_mask(uint8_t *payload, size_t payload_len, u32_t maskingKey)
 {
-    u8_t size = 2;
-    if (header.basic.length == 126)
+    const u8_t *mask_bytes = reinterpret_cast<const u8_t *>(&maskingKey);
+    for (size_t i = 0; i < payload_len; i++)
     {
-        size += 2;
+        payload[i] ^= mask_bytes[i % 4];
     }
-    else if (header.basic.length == 127)
-    {
-        size += 8;
-    }
-    if (header.basic.mask)
-    {
-        size += 4;
-    }
-    return size;
 }
 
-void WebSocket::send_frame(struct TCPConnection *connection, const uint8_t *data, size_t len, uint8_t opcode)
+void WSConnection::write_frame(uint8_t opcode, size_t len, const uint8_t *data)
+{
+    write_frame_header(opcode, len);
+    if (header.getPayloadLength() > 0)
+        write(data, len);
+}
+
+void WSConnection::write_frame_header(uint8_t opcode, size_t len)
 {
     header.basic.fin = 1;
     header.basic.rsv = 0;
     header.basic.opcode = opcode;
     header.basic.mask = 0;
     header.setPayloadLength(len);
-    connection->write(&header, header.size(), TCP_WRITE_FLAG_COPY | TCP_WRITE_FLAG_MORE);
-    connection->write(data, len);
+    log_t_tx(opcode_name(opcode),
+             "dst=%s:%d len=%d \n",
+             ip4addr_ntoa(&client_pcb->remote_ip),
+             client_pcb->remote_port,
+             len);
+    write(&header, header.size(), TCP_WRITE_FLAG_COPY | (header.getPayloadLength() > 0 ? TCP_WRITE_FLAG_MORE : 0));
+}
+
+void WSConnection::ping()
+{
+    write_frame(WS_OPCODE_PING, 0, NULL);
+}
+
+void WSConnection::pong()
+{
+    write_frame(WS_OPCODE_PONG, 0, NULL);
+}
+
+void WSConnection::close()
+{
+    if (!closed)
+    {
+        write_frame(WS_OPCODE_CLOSE, 0, NULL);
+        closed = true;
+    }
+    TCPConnection::close();
 }

@@ -2,6 +2,11 @@
 
 #include "lwip/arch.h"
 
+#define WS_HEADER_SIZE 2
+#define WS_HEADER_EXT16_SIZE 4
+#define WS_HEADER_EXT64_SIZE 10
+#define WS_HEADER_MASKING_KEY_SIZE 4
+
 struct TCPConnection;
 
 struct __attribute__((packed)) WSHeaderEssentials
@@ -37,24 +42,26 @@ union __attribute__((packed)) WSHeader
     WSHeaderExt64 ext64;
 
     /**
-     * @brief Set the payload length 
-     * 
+     * @brief Set the payload length
+     *
      */
     void setPayloadLength(size_t len);
     /**
-     * @brief Get the payload length 
-     * 
-     * @return int 
+     * @brief Get the payload length
+     *
+     * @return int
      */
-    size_t getPayloadLength();
+    size_t getPayloadLength() const;
     /**
      * @brief Set the Masking key
-     * 
+     *
      */
     void setMaskingKey(u32_t key);
     /**
      * @brief returns the size of the header
-     * 
+     *
      */
-    u8_t size();
+    u8_t size() const;
+
+    u32_t getMaskingKey() const;
 };
