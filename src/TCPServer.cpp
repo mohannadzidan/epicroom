@@ -159,21 +159,21 @@ err_t TCPServer::recv(void *connectionPtr, tcp_pcb *tpcb, pbuf *data, err_t err)
     tcp_recved(tpcb, data->tot_len);
     pbuf_free(data);
 
-    if (!connection->is_websocket)
-    {
-        if (!WebSocket::handle_handshake(connection, tpcb, (const char *)connection->buffer_recv, connection->recv_len))
-        {
-            char response[32];
-            snprintf(response, sizeof(response), "HTTP/1.1 418 I'm a teapot\r\n");
-            connection->write(response, sizeof(response));
-            connection->close();
-        }
-    }
-    else
+    if (connection->is_websocket)
     {
         WebSocket::handle_frame(connection, tpcb, connection->buffer_recv, connection->recv_len);
     }
-
+    else if (!WebSocket::handle_handshake(connection, tpcb, (const char *)connection->buffer_recv, connection->recv_len))
+    {
+        return ERR_OK;
+    }
+    else
+    {
+        char response[32];
+        snprintf(response, sizeof(response), "HTTP/1.1 418 I'm a teapot\r\n");
+        connection->write(response, sizeof(response));
+        connection->close();
+    }
     return ERR_OK;
 }
 
