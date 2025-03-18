@@ -4,7 +4,14 @@
 #include "WebSocket.h"
 #include "log.h"
 // #include <malloc.h>
+#include "assets_bundle.h"
 
+#include <time.h>
+time_t myTime(time_t *t)
+{
+    *t = (((2023 - 1970) * 12 + 8) * 30 * 24 * 60 * 60);
+    return *t;
+}
 void run_tcp_server()
 {
     TCPServer tcpServer;

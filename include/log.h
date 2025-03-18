@@ -1,6 +1,6 @@
 
 #pragma once
-#include "pico/stdio.h"
+#include "stdio.h"
 
 #define LOGGING_LEVEL_NONE 0
 #define LOGGING_LEVEL_ERROR 1
@@ -32,6 +32,7 @@
 #else
 #define log_i(...) printf("info: " __VA_ARGS__)
 #endif
+#define STR_(t) #t
 
 #if LOGGING_LEVEL < LOGGING_LEVEL_ERROR
 #define log_e(...)

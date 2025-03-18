@@ -114,6 +114,22 @@
         "print": "cpp",
         "shared_mutex": "cpp",
         "stop_token": "cpp",
-        "expected": "cpp"
+        "expected": "cpp",
+        "chrono": "cpp",
+        "assets_bundle.h": "c",
+        "stdint.h": "c",
+        "certs_test.h": "c",
+        "ratio": "cpp",
+        "any": "cpp",
+        "barrier": "cpp",
+        "complex": "cpp",
+        "condition_variable": "cpp",
+        "coroutine": "cpp",
+        "future": "cpp",
+        "generator": "cpp",
+        "mutex": "cpp",
+        "scoped_allocator": "cpp",
+        "spanstream": "cpp",
+        "thread": "cpp"
     }
 }

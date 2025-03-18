@@ -3,6 +3,37 @@
 #include "WebSocket.h"
 #include "pico/cyw43_arch.h"
 #include "log.h"
+#include "fs.h"
+#include "http.h"
+#include <wolfssl/wolfcrypt/settings.h>
+#include <wolfssl/ssl.h>
+
+WOLFSSL_CTX *ctx;
+WOLFSSL *ssl;
+
+void wolfssl_init()
+{
+    // Initialize WolfSSL library
+    wolfSSL_Init();
+    // Create and configure SSL context
+    ctx = wolfSSL_CTX_new(wolfTLSv1_2_server_method());
+    if (ctx == NULL)
+    {
+        printf("Failed to create SSL context\n");
+        return;
+    }
+
+    // Load certificate and private key
+    if (wolfSSL_CTX_use_certificate_buffer(ctx, NULL, 0, 1))
+    {
+        printf("Failed to load certificate\n");
+        return;
+    }
+    // if (wolfSSL_CTX_use_PrivateKey_file(ctx, "server.key", SSL_FILETYPE_PEM) != SSL_SUCCESS) {
+    //     printf("Failed to load private key\n");
+    //     return;
+    // }
+}
 
 err_t TCPConnection::write(const void *buffer_send, size_t send_len, u8_t flags)
 {
@@ -96,7 +127,7 @@ bool TCPServer::open(u16_t port)
         tcp_close(pcb);
         return false;
     }
-
+    wolfssl_init();
     tcp_arg(pcb, this);
     tcp_accept(pcb, &TCPServer::accept);
     log_i("TCP server started on %s:%u\n", ip4addr_ntoa(&ip), port);
@@ -158,22 +189,43 @@ err_t TCPServer::recv(void *connectionPtr, tcp_pcb *tpcb, pbuf *data, err_t err)
     connection->buffer_recv[connection->recv_len] = '\0';
     tcp_recved(tpcb, data->tot_len);
     pbuf_free(data);
+    HttpRequest request;
+    HttpResponse response(connection);
 
+    if (parseHttp(connection->buffer_recv, connection->recv_len, &request))
+    {
+
+        log_t("<-HTTP-- %s %s src=%s:%d\n",
+              request.method, request.path,
+              ip4addr_ntoa(&tpcb->remote_ip), tpcb->remote_port);
+        File f;
+        if (!strcmp("GET", request.method) && (readFile(request.path, &f) || readFile("/index.html", &f)))
+        {
+            const char *cacheControl = !strcmp(f.mime_type, "text/html") ? "no-cache, must-revalidate" : "public, max-age=31536000, immutable";
+            response.status(200);
+            response.header("Content-Encoding", "gzip");
+            response.header("Connection", "close");
+            response.header("Cache-Control", cacheControl);
+            response.header("Content-Length", f.size);
+            response.header("Content-Type", f.mime_type);
+            response.send(f.content, f.size);
+            return ERR_OK;
+        }
+    }
     if (connection->is_websocket)
     {
         WebSocket::handle_frame(connection, tpcb, connection->buffer_recv, connection->recv_len);
+        return ERR_OK;
     }
-    else if (!WebSocket::handle_handshake(connection, tpcb, (const char *)connection->buffer_recv, connection->recv_len))
+    else if (WebSocket::handle_handshake(connection, tpcb, (const char *)connection->buffer_recv, connection->recv_len))
     {
         return ERR_OK;
     }
-    else
-    {
-        char response[32];
-        snprintf(response, sizeof(response), "HTTP/1.1 418 I'm a teapot\r\n");
-        connection->write(response, sizeof(response));
-        connection->close();
-    }
+
+    response.status(418);
+    response.header("Cache-Control", "no-cache, must-revalidate");
+    response.header("Content-Length", 13);
+    response.send((const uint8_t *)"I'm a teapot", 13, 0);
     return ERR_OK;
 }
 

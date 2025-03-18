@@ -26,7 +26,7 @@
 #define PBUF_POOL_SIZE              24
 #define LWIP_ARP                    1
 #define LWIP_ETHERNET               1
-#define LWIP_ICMP                   1
+#define LWIP_ICMP                   0
 #define LWIP_RAW                    1
 #define TCP_WND                     (8 * TCP_MSS)
 #define TCP_MSS                     1460

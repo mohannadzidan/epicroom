@@ -1,6 +1,7 @@
 #ifndef TCP_H
 #define TCP_H
 #include "lwip/tcp.h"
+#include "http.h"
 
 #define BUF_SIZE 2048
 
