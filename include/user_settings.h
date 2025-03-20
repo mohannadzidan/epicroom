@@ -31,10 +31,12 @@
 extern "C"
 {
 #endif
-
+#define HAVE_OID_ENCODING
+#define HAVE_ECC384
+#define WOLFSSL_CUSTOM_CURVES
 #define TARGET_EMBEDDED
 #define WOLFSSL_LWIP
-
+// #define DEBUG_WOLFSSL
 /* If TARGET_EMBEDDED is defined then small target settings are used */
 #if !(defined(__MACH__) || defined(__FreeBSD__) || defined(__linux__) || defined(_WIN32))
 #define TARGET_EMBEDDED
@@ -334,7 +336,7 @@ extern "C"
 
 #undef DEBUG_WOLFSSL
 #undef NO_ERROR_STRINGS
-#if 0
+#if 1
 #define DEBUG_WOLFSSL
 #else
 #if 0
