@@ -13,50 +13,36 @@
 #define log_t_tx(tag, message, ...) log_t(ARROW_TX " %s -- " message, tag, ##__VA_ARGS__)
 #define log_t_tx_cont(tag, message, ...) log_t(ARROW_SP " %s -- " message, tag, ##__VA_ARGS__)
 
-#define opcode_name(opcode) (opcode == WS_OPCODE_TEXT_FRAME     ? "text"   \
-                             : opcode == WS_OPCODE_BINARY_FRAME ? "binary" \
-                             : opcode == WS_OPCODE_PING         ? "ping"   \
-                             : opcode == WS_OPCODE_PONG         ? "pong"   \
-                             : opcode == WS_OPCODE_CLOSE        ? "close"  \
-                             : opcode == WS_OPCODE_CONTINUE     ? "cont"   \
-                                                                : "invalid")
-
-WebSocket::WebSocket()
+const char *opcode_name(uint8_t opcode)
 {
+    return (opcode == WS_OPCODE_TEXT_FRAME     ? "text"
+            : opcode == WS_OPCODE_BINARY_FRAME ? "binary"
+            : opcode == WS_OPCODE_PING         ? "ping"
+            : opcode == WS_OPCODE_PONG         ? "pong"
+            : opcode == WS_OPCODE_CLOSE        ? "close"
+            : opcode == WS_OPCODE_CONTINUE     ? "cont"
+                                               : "invalid");
+}
+
+WebSocket::WebSocket(TCPConnection *connection)
+{
+    this->connection = connection;
 }
 
 WSHeader header;
 
-bool WebSocket::handle_handshake(struct TCPConnection *connection, struct tcp_pcb *tpcb, const char *data, size_t len)
+bool WebSocket::handle_handshake(struct TCPConnection *connection, HttpRequest *request)
 {
-    const char *key_header = "Sec-WebSocket-Key: ";
-    const char *key_start = strstr(data, key_header);
-    if (!key_start)
+    char headerValue[64];
+    char *headerValueStart;
+    int ret;
+    if ((ret = request->header("Sec-WebSocket-Key", headerValue, sizeof(headerValue))) != APP_ERR_NONE)
     {
-        // No WebSocket key found, assume it's not a WebSocket connection
+        log_e("handshake Sec-WebSocket-Key header not found! e=%d e!=%d", ret, !ret);
         return false;
     }
-
-    key_start += strlen(key_header);
-    const char *key_end = strstr(key_start, "\r\n");
-    if (!key_end)
-    {
-        // Invalid WebSocket key format
-        return false;
-    }
-
-    char key[64];
-    size_t key_len = key_end - key_start;
-    if (key_len >= sizeof(key))
-    {
-        // WebSocket key too long
-        return false;
-    }
-    memcpy(key, key_start, key_len);
-    key[key_len] = '\0';
-
     char combined[128];
-    snprintf(combined, sizeof(combined), "%s%s", key, WS_GUID);
+    snprintf(combined, sizeof(combined), "%s%s", headerValue, WS_GUID);
 
     uint8_t sha1[20];
     mbedtls_sha1((const unsigned char *)combined, strlen(combined), sha1);
@@ -66,54 +52,53 @@ bool WebSocket::handle_handshake(struct TCPConnection *connection, struct tcp_pc
     if (accept_len == 0)
     {
         // Failed to encode WebSocket accept key
+        log_e("handshake Failed to encode WebSocket accept key");
         return false;
     }
 
-    char response[256];
-    snprintf(response, sizeof(response),
-             "HTTP/1.1 101 Switching Protocols\r\n"
-             "Upgrade: websocket\r\n"
-             "Connection: Upgrade\r\n"
-             "Sec-WebSocket-Accept: %s\r\n\r\n",
-             accept_key);
-    connection->write(response, strlen(response));
-    connection->is_websocket = true;
+    // char response[256];
+    HttpResponse response(connection);
+    response.status(101);
+    response.header("Upgrade", "websocket");
+    response.header("Connection", "Upgrade");
+    response.header("Sec-WebSocket-Accept", accept_key);
+    response.send();
+    connection->ws = new WebSocket(connection);
     return true;
 }
 
-void WebSocket::handle_frame(struct TCPConnection *connection, struct tcp_pcb *tpcb, uint8_t *data, size_t len)
+void WebSocket::handle()
 {
 
-    if (len < WS_HEADER_SIZE)
+    if (connection->recv_len < WS_HEADER_SIZE)
     {
-        // Invalid WebSocket frame
+        log_e("WebSocket::handle received Invalid WebSocket frame");
         return;
     }
-    WSHeader *header = reinterpret_cast<WSHeader *>(data);
-    if (len < header->size())
+    WSHeader *header = reinterpret_cast<WSHeader *>(connection->buffer_recv);
+    if (connection->recv_len < header->size())
     {
-        // malformed frame
+        log_e("WebSocket::handle received malformed ws");
         return;
     }
-    WSConnection *ws = reinterpret_cast<WSConnection *>(connection);
     size_t payload_len = header->getPayloadLength();
-    u8_t *payload = (u8_t *)&data[header->size()];
+    u8_t *payload = (u8_t *)&connection->buffer_recv[header->size()];
     u32_t masking_key_offset = reinterpret_cast<uint8_t *>(&header->basic.masking_key) - reinterpret_cast<uint8_t *>(header);
 
     log_t_rx(opcode_name(header->basic.opcode),
-             "src=%s:%d len=%u \n",
-             ip4addr_ntoa(&tpcb->remote_ip),
-             tpcb->remote_port,
-             len);
+             "src=%s:%d len=%u",
+             ip4addr_ntoa(&connection->client_pcb->remote_ip),
+             connection->client_pcb->remote_port,
+             connection->recv_len);
 
     switch (header->basic.opcode)
     {
     case WS_OPCODE_CLOSE:
-        ws->closed = 1;
-        ws->close();
+        closed = 1;
+        close();
         return;
     case WS_OPCODE_PING:
-        ws->pong();
+        pong();
     case WS_OPCODE_PONG:
         return;
     default:
@@ -128,11 +113,11 @@ void WebSocket::handle_frame(struct TCPConnection *connection, struct tcp_pcb *t
 #if LOGGING_LEVEL >= LOGGING_LEVEL_TRACE
     if (header->basic.opcode == WS_OPCODE_TEXT_FRAME)
     {
-        log_t_rx_cont("data", "string=\"%.*s\"\n", payload_len, payload);
+        log_t_rx_cont("data", "string=\"%.*s\"", payload_len, payload);
     }
     else if (header->basic.opcode == WS_OPCODE_BINARY_FRAME)
     {
-        log_t_rx_cont("data", "binary\n");
+        log_t_rx_cont("data", "binary");
     }
 #endif
 }
@@ -146,14 +131,14 @@ void WebSocket::apply_mask(uint8_t *payload, size_t payload_len, u32_t maskingKe
     }
 }
 
-void WSConnection::write_frame(uint8_t opcode, size_t len, const uint8_t *data)
+void WebSocket::write_frame(uint8_t opcode, size_t len, const uint8_t *data)
 {
     write_frame_header(opcode, len);
     if (header.getPayloadLength() > 0)
-        write(data, len);
+        connection->write(data, len);
 }
 
-void WSConnection::write_frame_header(uint8_t opcode, size_t len)
+void WebSocket::write_frame_header(uint8_t opcode, size_t len)
 {
     header.basic.fin = 1;
     header.basic.rsv = 0;
@@ -161,29 +146,29 @@ void WSConnection::write_frame_header(uint8_t opcode, size_t len)
     header.basic.mask = 0;
     header.setPayloadLength(len);
     log_t_tx(opcode_name(opcode),
-             "dst=%s:%d len=%d \n",
-             ip4addr_ntoa(&client_pcb->remote_ip),
-             client_pcb->remote_port,
+             "dst=%s:%d len=%d",
+             ip4addr_ntoa(&connection->client_pcb->remote_ip),
+             connection->client_pcb->remote_port,
              len);
-    write(&header, header.size(), TCP_WRITE_FLAG_COPY | (header.getPayloadLength() > 0 ? TCP_WRITE_FLAG_MORE : 0));
+    connection->write(&header, header.size(), TCP_WRITE_FLAG_COPY | (header.getPayloadLength() > 0 ? TCP_WRITE_FLAG_MORE : 0));
 }
 
-void WSConnection::ping()
+void WebSocket::ping()
 {
     write_frame(WS_OPCODE_PING, 0, NULL);
 }
 
-void WSConnection::pong()
+void WebSocket::pong()
 {
     write_frame(WS_OPCODE_PONG, 0, NULL);
 }
 
-void WSConnection::close()
+void WebSocket::close()
 {
     if (!closed)
     {
         write_frame(WS_OPCODE_CLOSE, 0, NULL);
         closed = true;
     }
-    TCPConnection::close();
+    connection->close();
 }

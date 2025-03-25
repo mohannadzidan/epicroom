@@ -133,6 +133,10 @@
         "thread": "cpp",
         "codecvt": "cpp",
         "forward_list": "cpp",
-        "list": "cpp"
+        "list": "cpp",
+        "ios": "cpp",
+        "locale": "cpp",
+        "queue": "cpp",
+        "cstdbool": "cpp"
     }
 }

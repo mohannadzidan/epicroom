@@ -13,5 +13,5 @@ struct File
 };
 
 bool readFile(const char *filename, File *file);
-
+bool readFile(const char *directory, const char *filename, File *file);
 #endif // FS_H

@@ -18,9 +18,9 @@
 // MEM_LIBC_MALLOC is incompatible with non polling versions
 #define MEM_LIBC_MALLOC             0
 #endif
-#define MEMP_NUM_TCP_PCB            32
+#define MEMP_NUM_TCP_PCB            8
 #define MEM_ALIGNMENT               4
-#define MEM_SIZE                    1024*MEMP_NUM_TCP_PCB
+#define MEM_SIZE                    16*1024
 #define MEMP_NUM_TCP_SEG            32
 #define MEMP_NUM_ARP_QUEUE          10
 #define PBUF_POOL_SIZE              24

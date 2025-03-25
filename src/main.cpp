@@ -3,24 +3,43 @@
 #include "TCPServer.h"
 #include "WebSocket.h"
 #include "log.h"
-// #include <malloc.h>
+#include <malloc.h>
 #include "assets_bundle.h"
-
+#include "hardware/watchdog.h"
 #include <time.h>
+#include "hardware.h"
+
 time_t myTime(time_t *t)
 {
     *t = (((2023 - 1970) * 12 + 8) * 30 * 24 * 60 * 60);
     return *t;
 }
+
+uint32_t getTotalHeap(void)
+{
+    extern char __StackLimit, __bss_end__;
+
+    return &__StackLimit - &__bss_end__;
+}
+
+uint32_t getFreeHeap(void)
+{
+    struct mallinfo m = mallinfo();
+
+    return getTotalHeap() - m.uordblks;
+}
+TCPServer tcpServer = TCPServer();
+
 void run_tcp_server()
 {
-    TCPServer tcpServer;
-    WebSocket webSocket;
-    if (!tcpServer.open(80))
+
+    if (!tcpServer.open(443))
     {
-        log_e("Failed to open TCP server\n");
+        log_e("Failed to open TCP server");
         return;
     }
+    uint32_t msSinceBoot = to_ms_since_boot(get_absolute_time());
+
     while (true)
     {
 
@@ -28,61 +47,79 @@ void run_tcp_server()
         cyw43_arch_poll();
         cyw43_arch_wait_for_work_until(make_timeout_time_ms(1000));
 #else
+        watchdog_update();
+        uint32_t latency = to_ms_since_boot(get_absolute_time()) - msSinceBoot;
+        msSinceBoot = to_ms_since_boot(get_absolute_time());
+        log_i("[sys] latency=%d heap=%0.2f%% connections=%d", latency, (float)(getTotalHeap() - getFreeHeap()) / (float)getTotalHeap() * 100, tcpServer.activeConnections);
         sleep_ms(1000);
+        ledToggle();
         for (int i = 0; i < MEMP_NUM_TCP_PCB; i++)
         {
-            if (tcpServer.connections[i].client_pcb != NULL && tcpServer.connections[i].is_websocket)
+            if (tcpServer.connections[i].client_pcb != NULL && tcpServer.connections[i].ws != nullptr && !tcpServer.connections[i].ws->closed)
             {
-                WSConnection *ws = reinterpret_cast<WSConnection *>(&tcpServer.connections[i]);
-                ws->ping();
-                // ws->write_frame(WS_OPCODE_TEXT_FRAME, 13, (const uint8_t *)"Hello, World!");
+
+                tcpServer.connections[i].ws->ping();
+                tcpServer.connections[i].ws->write_frame(WS_OPCODE_TEXT_FRAME, 13, (const uint8_t *)"Hello, World!");
             }
         }
 #endif
     }
 }
 
-// uint32_t getTotalHeap(void) {
-//    extern char __StackLimit, __bss_end__;
-
-//    return &__StackLimit  - &__bss_end__;
-// }
-
-// uint32_t getFreeHeap(void) {
-//    struct mallinfo m = mallinfo();
-
-//    return getTotalHeap() - m.uordblks;
-// }
-
 int main()
 {
     stdio_init_all();
+    bool rebootedByWatchdog = watchdog_enable_caused_reboot();
 
+    watchdog_enable(60000, 1);
     if (cyw43_arch_init())
     {
-        log_e("Failed to initialize cyw43\n");
+        log_e("Failed to initialize cyw43");
         return 1;
     }
 
-    uint8_t mac[6];
-    cyw43_wifi_get_mac(&cyw43_state, CYW43_ITF_STA, mac);
-    log_i("Wi-Fi MAC Address: %02X:%02X:%02X:%02X:%02X:%02X\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    watchdog_update();
+
+    sleep_ms(5000);
+    if (rebootedByWatchdog)
+    {
+        log_e("Rebooted by Watchdog!\n");
+    }
+    log_i("Device up ٩(◕‿◕)۶");
+
     // while (!stdio_usb_connected())
     // {
     //     sleep_ms(100);
     //     /* code */
     // }
 
+    log_im("Starting WiFi ...");
     cyw43_arch_enable_sta_mode();
-    if (cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_AES_PSK, 30000))
+    printf(" OK\n");
+    uint8_t mac[6];
+    cyw43_wifi_get_mac(&cyw43_state, CYW43_ITF_STA, mac);
+    log_i("Wi-Fi MAC Address: %02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    bool connected = false;
+    while (!connected)
     {
-        log_e("Failed to connect to wifi ssid=" WIFI_SSID " using WPA2 pass=%c%c%c****\n", WIFI_PASSWORD[0], WIFI_PASSWORD[1], WIFI_PASSWORD[2]);
-        while (true)
-            ;
-        return 1;
-    }
 
+        watchdog_update();
+        log_im("Connecting to wifi ...");
+        if (cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_AES_PSK, 4900))
+        {
+            log_e("Failed to connect to wifi ssid=" WIFI_SSID " using WPA2 pass=%.sc****", 3, WIFI_PASSWORD);
+        }
+        else
+        {
+            connected = true;
+        }
+    }
+    watchdog_update();
+    printf(" OK\n");
+    ledOff();
     run_tcp_server();
+    log_i("Shutdown...");
     cyw43_arch_deinit();
+    log_i("Good Bye! ༼つ ◕_◕ ༽つ");
     return 0;
 }

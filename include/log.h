@@ -10,32 +10,53 @@
 #define LOGGING_LEVEL_TRACE 5
 
 #if LOGGING_LEVEL < LOGGING_LEVEL_TRACE
-#define log_t(...)
+#define log_t(message, ...)
 #else
-#define log_t(...) printf("trace: " __VA_ARGS__)
+#define log_tm(message, ...) printf("trace: " message, ##__VA_ARGS__)
+#define log_t(message, ...) log_tm(message "\n", ##__VA_ARGS__)
 #endif
 
 #if LOGGING_LEVEL < LOGGING_LEVEL_DEBUG
-#define log_d(...)
+#define log_d(message, ...)
 #else
-#define log_d(...) printf("debug: " __VA_ARGS__)
+#define log_dm(message, ...) printf("debug: " message, ##__VA_ARGS__)
+#define log_d(message, ...) log_dm(message "\n", ##__VA_ARGS__)
 #endif
 
 #if LOGGING_LEVEL < LOGGING_LEVEL_WARNING
-#define log_w(...)
+#define log_w(message, ...)
 #else
-#define log_w(...) printf("warning: " __VA_ARGS__)
+/**
+ * @brief Log warning, without new line at the end
+ * 
+ */
+#define log_wm(message, ...) printf("warning: " message, ##__VA_ARGS__)
+/**
+ * @brief Log warning line
+ * 
+ */
+#define log_w(message, ...) log_wm(message "\n", ##__VA_ARGS__)
 #endif
 
 #if LOGGING_LEVEL < LOGGING_LEVEL_INFO
-#define log_i(...)
+#define log_i(message, ...)
 #else
-#define log_i(...) printf("info: " __VA_ARGS__)
+/**
+ * @brief Log info, without new line at the end
+ * 
+ */
+
+#define log_im(message, ...) printf("info: " message, ##__VA_ARGS__)
+/**
+ * @brief Log info line
+ * 
+ */
+#define log_i(message, ...) log_im(message "\n", ##__VA_ARGS__)
 #endif
-#define STR_(t) #t
 
 #if LOGGING_LEVEL < LOGGING_LEVEL_ERROR
-#define log_e(...)
+#define log_e(message, ...)
 #else
-#define log_e(...) printf("error: " __VA_ARGS__)
+#define log_em(message, ...) printf("error: " message, ##__VA_ARGS__)
+#define log_e(message, ...) log_em(message "\n", ##__VA_ARGS__)
 #endif

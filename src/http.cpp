@@ -1,8 +1,8 @@
 #include "http.h"
+#include "TCPConnection.h"
 #include "log.h"
 #include <string.h>
-
-HttpRequest request;
+#include "errors.h"
 
 char headersBuffer[HTTP_RESPONSE_HEADER_BUFFER];
 
@@ -82,7 +82,6 @@ void httpError(TCPConnection *connection, const char *error)
     connection->close();
 }
 
-
 HttpResponse::HttpResponse(TCPConnection *con)
 {
     connection = con;
@@ -95,7 +94,7 @@ void HttpResponse::status(u16_t statusCode)
 {
     if (isStatusSent)
     {
-        log_e("status already sent\n");
+        log_e("status already sent");
         return;
     }
     int writtenHeadersLength = snprintf(headersBuffer, HTTP_RESPONSE_HEADER_BUFFER,
@@ -103,6 +102,7 @@ void HttpResponse::status(u16_t statusCode)
                                         statusCode == 200   ? "200 Ok"
                                         : statusCode == 500 ? "500 Internal Server Error"
                                         : statusCode == 418 ? "418 I'm a teapot"
+                                        : statusCode == 101 ? "101 Switching Protocols"
                                                             : "500 Internal Server Error");
     connection->write(headersBuffer, writtenHeadersLength, TCP_WRITE_FLAG_MORE);
     isStatusSent = true;
@@ -112,7 +112,7 @@ void HttpResponse::header(const char *name, const char *value)
 {
     if (isBodySent)
     {
-        log_e("body is already sent\n");
+        log_e("body is already sent");
         return;
     }
     if (!isStatusSent)
@@ -127,7 +127,7 @@ void HttpResponse::header(const char *name, uint32_t value)
 {
     if (isBodySent)
     {
-        log_e("body is already sent\n");
+        log_e("body is already sent");
         return;
     }
     if (!isStatusSent)
@@ -160,7 +160,7 @@ void HttpResponse::send(const uint8_t *data, u32_t length, u8_t flags)
     }
     if (isBodySent)
     {
-        log_e("body already sent\n");
+        log_e("body already sent");
         return;
     }
     if (!isHeadersSent)
@@ -169,6 +169,55 @@ void HttpResponse::send(const uint8_t *data, u32_t length, u8_t flags)
         isHeadersSent = true;
     }
     connection->write(data, length, flags & ~TCP_WRITE_FLAG_MORE);
-    connection->close();
+    // connection->close();
     isBodySent = true;
+}
+
+void HttpResponse::send()
+{
+    if (!isStatusSent)
+    {
+        status(200);
+    }
+    if (isBodySent)
+    {
+        log_e("body already sent");
+        return;
+    }
+    if (!isHeadersSent)
+    {
+        connection->write("\r\n", 2, TCP_WRITE_FLAG_MORE);
+        isHeadersSent = true;
+    }
+    isBodySent = true;
+}
+/*
+curl --include --no-buffer  https://epicroom.duckdns.org/ws \
+     --header "Connection: Upgrade" \
+     --header "Upgrade: websocket" \
+     --header "Sec-WebSocket-Key: SGVsbG8sIHdvcmxkIQ==" \
+     --header "Sec-WebSocket-Version: 13"
+
+*/
+app_err HttpRequest::header(const char *name, char *output, size_t bufferSize)
+{
+    const char *key_start = strstr(headers, name);
+    if (!key_start)
+    {
+        return APP_ERR_NOT_FOUND;
+    }
+    key_start += strlen(name) + 2; // sizeof(": ")
+    const char *end = strstr(key_start, "\r\n");
+    if (!end)
+    {
+        return APP_ERR_NOT_FOUND;
+    }
+    size_t key_len = end - key_start;
+    if (key_len > bufferSize)
+    {
+        return APP_ERR_TOO_LONG;
+    }
+    memcpy(output, key_start, key_len);
+    output[key_len] = '\0';
+    return APP_ERR_NONE;
 }

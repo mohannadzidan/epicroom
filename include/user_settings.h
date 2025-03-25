@@ -36,6 +36,7 @@ extern "C"
 #define WOLFSSL_CUSTOM_CURVES
 #define TARGET_EMBEDDED
 #define WOLFSSL_LWIP
+#define WOLFSSL_LWIP_NATIVE
 // #define DEBUG_WOLFSSL
 /* If TARGET_EMBEDDED is defined then small target settings are used */
 #if !(defined(__MACH__) || defined(__FreeBSD__) || defined(__linux__) || defined(_WIN32))

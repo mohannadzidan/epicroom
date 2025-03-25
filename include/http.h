@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "TCPServer.h"
+#include "errors.h"
 
 #define HTTP_VERSION "HTTP/1.1"
 #define HTTP_CACHE_CONTROL_MASK 0x1
@@ -10,6 +11,7 @@
 #define HTTP_CACHE_CONTROL_IMMUTABLE 0x1
 #define HTTP_NO_CACHE "200 Ok"
 #define HTTP_RESPONSE_HEADER_BUFFER 256
+
 struct HttpRequest
 {
     const char *method;    // HTTP method (e.g., GET, POST)
@@ -20,7 +22,9 @@ struct HttpRequest
 
     const char *body;
     size_t body_length;
+    app_err header(const char *name, char *outputValue, size_t bufferSize);
 };
+
 struct TCPConnection;
 struct HttpResponse
 {
@@ -30,6 +34,7 @@ struct HttpResponse
     void header(const char *name, u32_t value);
     void write(const uint8_t *data, u32_t length, u8_t flags = TCP_WRITE_FLAG_MORE | TCP_WRITE_FLAG_COPY);
     void send(const uint8_t *data, u32_t length, u8_t flags = TCP_WRITE_FLAG_COPY);
+    void send();
 
 private:
     uint8_t isStatusSent : 1;
