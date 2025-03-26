@@ -88,6 +88,7 @@ HttpResponse::HttpResponse(TCPConnection *con)
     isStatusSent = false;
     isHeadersSent = false;
     isBodySent = false;
+    log_d("initi http response");
 }
 
 void HttpResponse::status(u16_t statusCode)

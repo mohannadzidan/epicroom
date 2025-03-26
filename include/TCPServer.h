@@ -1,5 +1,5 @@
-#ifndef TCP_H
-#define TCP_H
+#pragma once
+
 #include "lwip/tcp.h"
 #include "wolfssl/ssl.h"
 #include "TCPConnection.h"
@@ -7,25 +7,12 @@
 
 #define MAX_CONNECTIONS MEMP_NUM_TCP_PCB
 
-// #define iterate_server_connections(server, code)        \
-//     {                                                   \
-//         TCPConnection *current = server->connections;   \
-//         while (current)                                 \
-//         {                                               \
-//             TCPConnection *next = current->linked_next; \
-//             {code};                                     \
-//             current = next;                             \
-//         }                                               \
-//     }
-
-
-
 struct TCPConnection;
 
 class TCPServer : public LinkedBase
 {
 public:
-    TCPServer();
+    TCPServer(bool tls);
     ~TCPServer();
 
     bool open(u16_t port);
@@ -37,12 +24,13 @@ public:
     int activeConnections;
     static void poll();
 
+    virtual void receive(TCPConnection *connection) = 0;
+
 private:
     tcp_pcb *pcb;
     static err_t accept(void *arg, tcp_pcb *client_pcb, err_t err);
     static err_t recv(void *arg, tcp_pcb *tpcb, pbuf *p, err_t err);
     static void onError(void *arg, err_t err);
-    static LinkedList<TCPServer> allServers;
+    static LinkedList<TCPServer *> allServers;
+    bool tls;
 };
-
-#endif // TCP_H

@@ -13,6 +13,7 @@ TCPConnection::TCPConnection(TCPServer *server)
     this->server = server;
     // this->recv_len = 0;
     this->ssl = nullptr;
+    this->active = true;
     this->client_pcb = nullptr;
     this->ws = nullptr;
     this->timeout = 30000;
@@ -82,28 +83,37 @@ err_t TCPConnection::write(const void *buffer_send, size_t send_len, u8_t flags)
 {
     watchdog_update();
     cyw43_arch_lwip_check();
-    int ret = wolfSSL_write(this->ssl, buffer_send, send_len);
     keepAlive();
-    while (ret == -1)
+
+    if (ssl)
     {
-        ret = wolfSSL_get_error(ssl, ret);
-        if (ret == SSL_ERROR_WANT_READ || ret == SSL_ERROR_WANT_WRITE)
+        int ret = wolfSSL_write(ssl, buffer_send, send_len);
+        while (ret == -1)
         {
-            ret = wolfSSL_write(this->ssl, buffer_send, send_len);
-        }
-        else if (ret == WOLFSSL_ERROR_ZERO_RETURN)
-        {
-            // connection closed
-            log_t("connection closed %p due to WOLFSSL_ERROR_ZERO_RETURN", this);
-            close();
-            return APP_ERR_CONNECTION_CLOSED;
-        }
-        else
-        {
-            log_e("Fatal error write data err=%d", ret);
-            return ret;
+            ret = wolfSSL_get_error(ssl, ret);
+            if (ret == SSL_ERROR_WANT_READ || ret == SSL_ERROR_WANT_WRITE)
+            {
+                ret = wolfSSL_write(ssl, buffer_send, send_len);
+            }
+            else if (ret == WOLFSSL_ERROR_ZERO_RETURN)
+            {
+                // connection closed
+                log_t("connection closed %p due to WOLFSSL_ERROR_ZERO_RETURN", this);
+                close();
+                return APP_ERR_CONNECTION_CLOSED;
+            }
+            else
+            {
+                log_e("Fatal error write data err=%d", ret);
+                return ret;
+            }
         }
     }
+    else
+    {
+        return tcp_write(client_pcb, buffer_send, send_len, flags);
+    }
+
     return ERR_OK;
 }
 
@@ -111,29 +121,34 @@ int TCPConnection::read()
 {
     watchdog_update();
     cyw43_arch_lwip_check();
-    int ret = wolfSSL_read(ssl, server->buffer_recv, sizeof(server->buffer_recv));
     keepAlive();
-    while (ret == -1 && wantReadWriteTimes++ > 254)
+    if (ssl)
     {
-        ret = wolfSSL_get_error(ssl, ret);
-        if (ret == SSL_ERROR_WANT_READ || ret == SSL_ERROR_WANT_WRITE)
+
+        int ret = wolfSSL_read(ssl, server->buffer_recv, sizeof(server->buffer_recv));
+        while (ret == -1 && wantReadWriteTimes++ > 254)
         {
-            ret = wolfSSL_read(ssl, server->buffer_recv, sizeof(server->buffer_recv));
+            ret = wolfSSL_get_error(ssl, ret);
+            if (ret == SSL_ERROR_WANT_READ || ret == SSL_ERROR_WANT_WRITE)
+            {
+                ret = wolfSSL_read(ssl, server->buffer_recv, sizeof(server->buffer_recv));
+            }
+            else if (ret == WOLFSSL_ERROR_ZERO_RETURN)
+            {
+                // connection closed
+                log_t("connection closed %p due to WOLFSSL_ERROR_ZERO_RETURN", this);
+                close();
+                return APP_ERR_CONNECTION_CLOSED;
+            }
+            else
+            {
+                log_e("Fatal error while read err=%d", ret);
+                return APP_ERR_FATAL;
+            }
         }
-        else if (ret == WOLFSSL_ERROR_ZERO_RETURN)
-        {
-            // connection closed
-            log_t("connection closed %p due to WOLFSSL_ERROR_ZERO_RETURN", this);
-            close();
-            return APP_ERR_CONNECTION_CLOSED;
-        }
-        else
-        {
-            log_e("Fatal error while read err=%d", ret);
-            return APP_ERR_FATAL;
-        }
+        return ret;
     }
-    return ret;
+    return ERR_OK;
 }
 
 err_t TCPConnection::write(const void *buffer_send, size_t send_len)
@@ -185,7 +200,7 @@ void TCPConnection::free()
     }
 }
 
-inline void TCPConnection::keepAlive()
+void TCPConnection::keepAlive()
 {
-    active = 1;
+    active = true;
 }

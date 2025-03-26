@@ -11,13 +11,12 @@
 #include "errors.h"
 #include "hardware/watchdog.h"
 
-unsigned int privkey1_pem_len = 301;
+// #define LOG_CONNECTION_POLL
 
-LinkedList<TCPServer> TCPServer::allServers = LinkedList<TCPServer>();
+LinkedList<TCPServer *> TCPServer::allServers = LinkedList<TCPServer *>();
 
-// TODO: this should be member of TCPServer
-WOLFSSL_CTX *ctx;
-void wolfssl_init()
+WOLFSSL_CTX *tlsCtx;
+void loadSSLCertificates()
 {
     File file;
 
@@ -26,8 +25,8 @@ void wolfssl_init()
     wolfSSL_Init();
 
     // Create a new SSL context
-    ctx = wolfSSL_CTX_new(wolfTLSv1_2_server_method());
-    if (!ctx)
+    tlsCtx = wolfSSL_CTX_new(wolfTLSv1_2_server_method());
+    if (!tlsCtx)
     {
         printf("Failed to create SSL context\n");
         return;
@@ -38,7 +37,7 @@ void wolfssl_init()
         log_e("privkey.pem not found!");
         return;
     }
-    int loadKeyResult = wolfSSL_CTX_use_PrivateKey_buffer(ctx, file.content, file.size, WOLFSSL_FILETYPE_PEM);
+    int loadKeyResult = wolfSSL_CTX_use_PrivateKey_buffer(tlsCtx, file.content, file.size, WOLFSSL_FILETYPE_PEM);
     watchdog_update();
     // Load the private key
     if (loadKeyResult != SSL_SUCCESS)
@@ -52,7 +51,7 @@ void wolfssl_init()
         log_e("fullchain.pem not found!");
         return;
     }
-    int loadCertResult = wolfSSL_CTX_use_certificate_chain_buffer(ctx, file.content, file.size);
+    int loadCertResult = wolfSSL_CTX_use_certificate_chain_buffer(tlsCtx, file.content, file.size);
     watchdog_update();
 
     // Load the server certificate
@@ -63,9 +62,8 @@ void wolfssl_init()
     }
 }
 
-TCPServer::TCPServer()
+TCPServer::TCPServer(bool tls) : tls(tls), connections(nullptr), recv_len(0)
 {
-    connections = nullptr;
     allServers.add(this);
 }
 
@@ -86,7 +84,7 @@ void TCPServer::poll()
 {
 
     uint32_t msSinceBoot = to_ms_since_boot(get_absolute_time());
-    for (auto *tcpServer : allServers)
+    for (auto tcpServer : allServers)
     {
         TCPConnection *connection = tcpServer->connections;
         while (connection)
@@ -97,16 +95,18 @@ void TCPServer::poll()
                 connection->expiresAt = msSinceBoot + connection->timeout;
                 connection->active = false;
             }
+#ifdef LOG_CONNECTION_POLL
+            log_t("connection %p closeReason=%s timeout=%d ttl=%u",
+                  connection,
+                  connection->client_pcb == nullptr                                 ? "application"
+                  : connection->timeout != 0 && msSinceBoot > connection->expiresAt ? "timeout"
+                                                                                    : "none",
+                  connection->timeout,
+                  connection->expiresAt - msSinceBoot);
+#endif
             if (!connection->client_pcb ||
                 (connection->timeout != 0 && msSinceBoot > connection->expiresAt))
             {
-                log_t("deleting connection %p client_pcb?=%d timeout?=%d timeout=%d now=%d expiresAt=%d",
-                      connection,
-                      connection->client_pcb == nullptr,
-                      connection->timeout != 0 && msSinceBoot > connection->expiresAt,
-                      connection->timeout,
-                      msSinceBoot,
-                      connection->expiresAt);
                 delete connection;
             }
             connection = next;
@@ -144,7 +144,10 @@ bool TCPServer::open(u16_t port)
         tcp_close(pcb);
         return false;
     }
-    wolfssl_init();
+    if (tls && !tlsCtx)
+    {
+        loadSSLCertificates();
+    }
     tcp_accept(pcb, &TCPServer::accept);
     tcp_arg(pcb, this);
     log_i("TCP server started on %s:%u", ip4addr_ntoa(&ip), port);
@@ -166,7 +169,9 @@ void TCPServer::run()
 
 err_t sent(void *arg, tcp_pcb *tpcb, u16_t len)
 {
+    auto connection = reinterpret_cast<TCPConnection *>(arg);
     watchdog_update();
+    connection->keepAlive();
     return ERR_OK;
 }
 
@@ -188,24 +193,34 @@ err_t TCPServer::accept(void *serverPointer, tcp_pcb *client_pcb, err_t err)
         return ERR_MEM;
     }
     int ret = 0;
-    conn->ssl = wolfSSL_new(ctx);
-    if (!conn->ssl)
-    {
-        log_e("Failed to allocate wolfSSL_new");
-        conn->close();
-        return ERR_MEM;
-    }
 
     conn->client_pcb = client_pcb;
     conn->server = server;
-    log_t("<-TCP-- New TCP connection %p %s:%d", conn, ip4addr_ntoa(&client_pcb->remote_ip), client_pcb->remote_port);
-    ret = wolfSSL_SetIO_LwIP(conn->ssl, client_pcb, TCPServer::recv, sent, conn);
-    if (ret != 0)
+    if (server->tls)
     {
-        log_e("Failed to allocate wolfSSL_SetIO_LwIP %d", err);
-        conn->close();
-        return ERR_MEM;
+        conn->ssl = wolfSSL_new(tlsCtx);
+        if (!conn->ssl)
+        {
+            log_e("Failed to allocate wolfSSL_new");
+            conn->close();
+            return ERR_MEM;
+        }
+        ret = wolfSSL_SetIO_LwIP(conn->ssl, client_pcb, recv, sent, conn);
+        if (ret != 0)
+        {
+            log_e("Failed to allocate wolfSSL_SetIO_LwIP %d", err);
+            conn->close();
+            return ERR_MEM;
+        }
     }
+    else
+    {
+        conn->ssl = nullptr;
+        tcp_recv(client_pcb, recv);
+        tcp_sent(client_pcb, sent);
+        tcp_arg(client_pcb, conn);
+    }
+    log_t("<-TCP-- New TCP connection %p %s:%d", conn, ip4addr_ntoa(&client_pcb->remote_ip), client_pcb->remote_port);
     tcp_err(client_pcb, server->onError);
     // tcp_arg(client_pcb, conn);
     // tcp_recv(client_pcb, &TCPServer::recv);
@@ -232,99 +247,49 @@ void TCPServer::onError(void *arg, err_t err)
 err_t TCPServer::recv(void *connectionPtr, tcp_pcb *tpcb, pbuf *data, err_t err)
 {
     watchdog_update();
+    cyw43_arch_lwip_check();
     if (err != ERR_OK || tpcb == NULL)
     {
         log_e("Failure in recv error=%d", err);
         return ERR_VAL;
     }
     auto connection = reinterpret_cast<TCPConnection *>(connectionPtr);
+    auto server = connection->server;
     int ret = 0;
-    if (!connection->ssl->options.handShakeDone)
+    if (connection->ssl && !connection->ssl->options.handShakeDone)
     {
         wolfSSL_accept(connection->ssl);
         return ERR_OK;
     }
 
-    if (!data)
+    if (!data || data->tot_len == 0)
     {
 
         log_d("Client closed the connection");
         connection->close();
         return ERR_OK;
     }
+    if (connection->ssl)
+    {
 
-    cyw43_arch_lwip_check();
-    int readLength = connection->read();
-    if (readLength <= 0)
-    {
-        log_d("connection closed readLength=%d", readLength);
-        connection->close();
-        return ERR_OK;
-    }
-    connection->server->recv_len = readLength;
-    connection->server->buffer_recv[readLength] = '\0';
-    // tcp_recved(tpcb, data->tot_len);
-    // pbuf_free(data);
-    HttpRequest request;
-    HttpResponse response(connection);
-    // printf("\n-------Data %d bytes--------\n", readLength);
-    // for (int i = 0; i < connection->recv_len; i++)
-    // {
-    //     if (connection->buffer_recv[i] <= 0)
-    //         printf("·");
-    //     else
-    //         printf("%c", connection->buffer_recv[i]);
-    // }
-    // printf("\n---------------------------\n\n");
-
-    if (connection->ws)
-    {
-        connection->ws->handle();
-        return ERR_OK;
-    }
-    if (parseHttp(connection->server->buffer_recv, connection->server->recv_len, &request))
-    {
-        watchdog_update();
-        log_t("<-HTTP-- %s \"%s\" src=%s:%d handshake=%d connection=%p",
-              request.method, request.path,
-              ip4addr_ntoa(&tpcb->remote_ip), tpcb->remote_port, connection->ssl->options.handShakeDone, connection);
-        if (!strcmp("/ws", request.path))
+        int readLength = connection->read();
+        if (readLength <= 0)
         {
-            if (!WebSocket::handle_handshake(connection, &request))
-            {
-                log_e("ws handshake error");
-            }
+            log_d("connection closed readLength=%d", readLength);
+            connection->close();
             return ERR_OK;
         }
-        File f;
-        if (!strcmp("GET", request.method) && (readFile("/web", request.path, &f) || readFile("/web", "/index.html", &f)))
-        {
-            const char *cacheControl = !strcmp(f.mime_type, "text/html") ? "no-cache, must-revalidate" : "public, max-age=31536000, immutable";
-            connection->timeout = 30000;
-            response.status(200);
-            response.header("Content-Encoding", "gzip");
-            response.header("Connection", "keep-alive");
-            response.header("Keep-Alive ", "timeout=30, max=200");
-            response.header("Cache-Control", cacheControl);
-            response.header("Content-Length", f.size);
-            response.header("Content-Type", f.mime_type);
-            response.send(f.content, f.size);
-            return ERR_OK;
-        }
+        server->recv_len = readLength;
+        server->buffer_recv[readLength] = '\0';
     }
-    log_d("Received a request i don't understand data(string)='%.s'", connection->server->recv_len, connection->server->buffer_recv);
-    printf("-------Data %d bytes--------\n", readLength);
-    for (int i = 0; i < connection->server->recv_len; i++)
+    else
     {
-        if (connection->server->buffer_recv[i] <= 0)
-            printf("·");
-        else
-            printf("%c", connection->server->buffer_recv[i]);
+        // Receive the buffer
+        const uint16_t buffer_left = BUF_SIZE - server->recv_len;
+        server->recv_len += pbuf_copy_partial(data, server->buffer_recv, data->tot_len, 0);
+        tcp_recved(tpcb, data->tot_len);
+        pbuf_free(data);
     }
-    printf("\n---------------------------\n\n");
-    response.status(418);
-    response.header("Cache-Control", "no-cache, must-revalidate");
-    response.header("Content-Length", 13);
-    response.send((const uint8_t *)"I'm a teapot", 13, 0);
+    server->receive(connection);
     return ERR_OK;
 }

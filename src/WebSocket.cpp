@@ -64,7 +64,7 @@ bool WebSocket::handle_handshake(struct TCPConnection *connection, HttpRequest *
     response.header("Sec-WebSocket-Accept", accept_key);
     response.send();
     connection->ws = new WebSocket(connection);
-    connection->timeout = 0;
+    connection->timeout = 2 * 60 * 60 * 1000;
     return true;
 }
 
@@ -163,7 +163,6 @@ void WebSocket::pong()
 {
     write_frame(WS_OPCODE_PONG, 0, NULL);
 }
-
 
 void WebSocket::writeCloseFrame()
 {

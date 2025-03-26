@@ -1,3 +1,5 @@
+
+#pragma once
 class LinkedBase
 {
 public:
@@ -9,32 +11,60 @@ public:
 template <typename T>
 class LinkedList
 {
-    static_assert(std::is_base_of_v<LinkedBase, T>, "T must inherit from LinkedBase");
+    // Handle both pointer and non-pointer types
+    using element_type = std::remove_pointer_t<T>;
+    static_assert(std::is_base_of_v<LinkedBase, element_type>, 
+                 "T must inherit from LinkedBase or be pointer to type that inherits from LinkedBase");
+    
+    // Determine if T is a pointer type
+    static constexpr bool is_pointer = std::is_pointer_v<T>;
+    
     LinkedBase *head = nullptr;
 
-public:
-    void add(T *node)
-    {
-        if (head == nullptr)
-        {
-            head = node;
-            node->linked_next = nullptr;
-            node->linked_previous = nullptr;
+    // Helper functions to convert between T and LinkedBase*
+    LinkedBase* to_base(T node) {
+        if constexpr (is_pointer) {
+            return static_cast<LinkedBase*>(node);
+        } else {
+            return static_cast<LinkedBase*>(&node);
         }
-        else
-        {
-            node->linked_next = head;
-            node->linked_previous = nullptr;
-            head->linked_previous = node;
-            head = node;
+    }
+    
+    T from_base(LinkedBase* base) {
+        if constexpr (is_pointer) {
+            return static_cast<T>(base);
+        } else {
+            return *static_cast<element_type*>(base);
         }
     }
 
-    void remove(T *node)
+public:
+    void add(T node)
     {
-        if (node == head)
+        LinkedBase* base_node = to_base(node);
+        
+        if (head == nullptr)
         {
-            head = node->linked_next;
+            head = base_node;
+            base_node->linked_next = nullptr;
+            base_node->linked_previous = nullptr;
+        }
+        else
+        {
+            base_node->linked_next = head;
+            base_node->linked_previous = nullptr;
+            head->linked_previous = base_node;
+            head = base_node;
+        }
+    }
+
+    void remove(T node)
+    {
+        LinkedBase* base_node = to_base(node);
+        
+        if (base_node == head)
+        {
+            head = base_node->linked_next;
             if (head != nullptr)
             {
                 head->linked_previous = nullptr;
@@ -42,31 +72,42 @@ public:
         }
         else
         {
-            if (node->linked_next != nullptr)
+            if (base_node->linked_next != nullptr)
             {
-                node->linked_next->linked_previous = node->linked_previous;
+                base_node->linked_next->linked_previous = base_node->linked_previous;
             }
-            if (node->linked_previous != nullptr)
+            if (base_node->linked_previous != nullptr)
             {
-                node->linked_previous->linked_next = node->linked_next;
+                base_node->linked_previous->linked_next = base_node->linked_next;
             }
         }
-        node->linked_next = nullptr;
-        node->linked_previous = nullptr;
+        base_node->linked_next = nullptr;
+        base_node->linked_previous = nullptr;
     }
 
-    // Iterator that casts to T* automatically
     class Iterator
     {
         LinkedBase *current;
+        bool is_iterator_pointer;
 
     public:
         Iterator(LinkedBase *current) : current(current) {}
 
-        // Return T* instead of T&
-        T *operator*() const { return static_cast<T *>(current); }
-        T *operator->() const { return static_cast<T *>(current); }
+        // Dereference returns T (either T& or T*)
+        T operator*() const { 
+            if constexpr (is_pointer) {
+                return static_cast<T>(current);
+            } else {
+                return *static_cast<element_type*>(current);
+            }
+        }
+        
+        // Arrow operator returns T* (works for both pointer and non-pointer T)
+        element_type* operator->() const { 
+            return static_cast<element_type*>(current); 
+        }
 
+        // Increment
         Iterator &operator++()
         {
             current = current->linked_next;

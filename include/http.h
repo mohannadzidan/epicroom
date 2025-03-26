@@ -12,8 +12,11 @@
 #define HTTP_NO_CACHE "200 Ok"
 #define HTTP_RESPONSE_HEADER_BUFFER 256
 
-struct HttpRequest
+class TCPConnection;
+
+class HttpRequest
 {
+public:
     const char *method;    // HTTP method (e.g., GET, POST)
     const char *path;      // Request path (e.g., /index.html)
     const char *version;   // HTTP version (e.g., HTTP/1.1)
@@ -25,9 +28,9 @@ struct HttpRequest
     app_err header(const char *name, char *outputValue, size_t bufferSize);
 };
 
-struct TCPConnection;
-struct HttpResponse
+class HttpResponse
 {
+public:
     HttpResponse(TCPConnection *connection);
     void status(u16_t statusCode);
     void header(const char *name, const char *value);
@@ -35,12 +38,12 @@ struct HttpResponse
     void write(const uint8_t *data, u32_t length, u8_t flags = TCP_WRITE_FLAG_MORE | TCP_WRITE_FLAG_COPY);
     void send(const uint8_t *data, u32_t length, u8_t flags = TCP_WRITE_FLAG_COPY);
     void send();
+    TCPConnection *connection;
 
 private:
     uint8_t isStatusSent : 1;
     uint8_t isBodySent : 1;
     uint8_t isHeadersSent : 1;
-    TCPConnection *connection;
 };
 
 bool parseHttp(uint8_t *payload, size_t length, HttpRequest *request);

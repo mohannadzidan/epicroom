@@ -1,6 +1,6 @@
 #include "pico/cyw43_arch.h"
 #include "pico/stdlib.h"
-#include "TCPServer.h"
+#include "AppHttpServer.h"
 #include "WebSocket.h"
 #include "log.h"
 #include <malloc.h>
@@ -29,7 +29,9 @@ uint32_t getFreeHeap(void)
 
     return getTotalHeap() - m.uordblks;
 }
-TCPServer tcpServer = TCPServer();
+
+AppHttpServer tcpServer = AppHttpServer(true);
+AppHttpServer httpServer = AppHttpServer(false);
 
 void run_tcp_server()
 {
@@ -37,6 +39,11 @@ void run_tcp_server()
     if (!tcpServer.open(443))
     {
         log_e("Failed to open TCP server");
+        return;
+    }
+    if (!httpServer.open(80))
+    {
+        log_e("Failed to open HTTP server");
         return;
     }
 
