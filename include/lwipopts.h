@@ -3,7 +3,8 @@
 
 // Common settings used in most of the pico_w examples
 // (see https://www.nongnu.org/lwip/2_1_x/group__lwip__opts.html for details)
-
+#define TCP_KEEPIDLE_DEFAULT    1000 // keep_idle : dont' send keep-alive until keep_idle after connecting
+#define TCP_KEEPCNT_DEFAULT     9U // keep_cnt : increase when no response after sending keep-alive every keep_intvl
 // allow override in some examples
 #ifndef NO_SYS
 #define NO_SYS                      1

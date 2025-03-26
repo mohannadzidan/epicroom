@@ -22,9 +22,9 @@ public:
     u8_t closed : 1;
     void write_frame(uint8_t opcode, size_t len, const uint8_t *data);
     void write_frame_header(uint8_t opcode, size_t len);
+    void writeCloseFrame();
     void ping();
     void pong();
-    void close();
     
     void handle();
     static void apply_mask(uint8_t *payload, size_t payload_len, u32_t maskingKey);

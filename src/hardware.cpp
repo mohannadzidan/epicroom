@@ -36,7 +36,7 @@ void ledToggle()
 void ledPut(u8_t state)
 {
     __state = state;
-    log_t("Led is %s", __state ? "on" : "off");
+    // log_t("Led is %s", __state ? "on" : "off");
 #if defined(PICO_DEFAULT_LED_PIN)
     // Just set the GPIO on or off
     gpio_put(PICO_DEFAULT_LED_PIN, __state);

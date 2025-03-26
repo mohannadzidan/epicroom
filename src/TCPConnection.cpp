@@ -4,26 +4,37 @@
 #include "lwip/tcp.h"
 #include "pico/cyw43_arch.h"
 #include "log.h"
+#include "hardware/watchdog.h"
 
 int TCPConnection::activeCount = 0;
 
 TCPConnection::TCPConnection(TCPServer *server)
 {
     this->server = server;
-    this->recv_len = 0;
+    // this->recv_len = 0;
     this->ssl = nullptr;
     this->client_pcb = nullptr;
     this->ws = nullptr;
-    this->linked_previous = nullptr;
-    this->linked_next = nullptr;
+    this->timeout = 30000;
+    this->expiresAt = 0;
     activeCount++;
     if (server->connections == nullptr)
     {
+        // log_t("add connection %p to head", this);
         server->connections = this;
+        this->linked_next = nullptr;
+        this->linked_previous = nullptr;
     }
     else
     {
-        server->connections->linked_next = this;
+        // Link the new node to the current head
+        // log_t("add connection %p to head and before %p", this, server->connections);
+        this->linked_next = server->connections;
+        this->linked_previous = nullptr;
+        // Link the current head back to the new node
+        server->connections->linked_previous = this;
+        // Update head to point to the new node
+        server->connections = this;
     }
 }
 
@@ -31,52 +42,48 @@ TCPConnection::~TCPConnection()
 {
 
     close();
-
-    log_t("Freeing TCPConnection %p", this);
-    client_pcb = NULL;
-    if (ws)
+    free();
+    // If node to remove is the head node
+    if (this == server->connections)
     {
-        log_t("Freeing ws %p", ws);
-        delete ws;
-        ws = NULL;
+        server->connections = this->linked_next;
+        if (server->connections != nullptr)
+        {
+            // log_t("remove connection %p from head and new head is %p", this, server->connections);
+            server->connections->linked_previous = nullptr;
+        }
+        else
+        {
+            // log_t("remove connection %p from head", this);
+        }
     }
-    recv_len = 0;
-    if (ssl)
+    else
     {
-        log_t("Freeing ssl %p", ssl);
-        wolfSSL_free(ssl);
+        // Update next node's previous pointer if it exists
+        if (this->linked_next != nullptr)
+        {
+            // log_t("remove connection %p and update next.previous to be %p", this, this->linked_next);
+            this->linked_next->linked_previous = this->linked_previous;
+        }
+        // Update previous node's next pointer if it exists
+        if (this->linked_previous != nullptr)
+        {
+            // log_t("remove connection %p and update previous.next to be %p", this, this->linked_next);
+            this->linked_previous->linked_next = this->linked_next;
+        }
     }
-
-    ssl = NULL;
-    log_t("Freed TCPConnection %p", this);
-
-    if (this->linked_next && this->linked_previous)
-    {
-        // Root->P->O->N
-        this->linked_previous->linked_next = this->linked_next;
-    }
-    else if (this->linked_previous)
-    {
-        // Root->P->O->null
-        this->linked_previous->linked_next = nullptr;
-    }
-    else if (server->connections == this && this->linked_next)
-    {
-        // Root->O->N
-        server->connections = this->linked_next ? this->linked_next : nullptr;
-    }
-    else if (server->connections == this)
-    {
-        // Root->O->null
-        server->connections = this->linked_next ? this->linked_next : nullptr;
-    }
+    // Clear the removed node's pointers (optional)
+    this->linked_next = nullptr;
+    this->linked_previous = nullptr;
     activeCount--;
 }
 
 err_t TCPConnection::write(const void *buffer_send, size_t send_len, u8_t flags)
 {
+    watchdog_update();
     cyw43_arch_lwip_check();
     int ret = wolfSSL_write(this->ssl, buffer_send, send_len);
+    keepAlive();
     while (ret == -1)
     {
         ret = wolfSSL_get_error(ssl, ret);
@@ -101,14 +108,16 @@ err_t TCPConnection::write(const void *buffer_send, size_t send_len, u8_t flags)
 
 int TCPConnection::read()
 {
+    watchdog_update();
     cyw43_arch_lwip_check();
-    int ret = wolfSSL_read(ssl, buffer_recv, sizeof(buffer_recv));
+    int ret = wolfSSL_read(ssl, server->buffer_recv, sizeof(server->buffer_recv));
+    keepAlive();
     while (ret == -1 && wantReadWriteTimes++ > 254)
     {
         ret = wolfSSL_get_error(ssl, ret);
         if (ret == SSL_ERROR_WANT_READ || ret == SSL_ERROR_WANT_WRITE)
         {
-            ret = wolfSSL_read(ssl, buffer_recv, sizeof(buffer_recv));
+            ret = wolfSSL_read(ssl, server->buffer_recv, sizeof(server->buffer_recv));
         }
         else if (ret == WOLFSSL_ERROR_ZERO_RETURN)
         {
@@ -131,7 +140,12 @@ err_t TCPConnection::write(const void *buffer_send, size_t send_len)
 }
 err_t TCPConnection::close()
 {
+    watchdog_update();
     err_t err = ERR_OK;
+    if (ws)
+    {
+        ws->writeCloseFrame();
+    }
     if (this->client_pcb != NULL)
     {
         tcp_arg(this->client_pcb, NULL);
@@ -142,33 +156,34 @@ err_t TCPConnection::close()
         err = tcp_close(this->client_pcb);
         if (err != ERR_OK)
         {
-            log_e("Close failed %d, calling abort", err);
+            log_e("Connection(%p) close failed err=%d, calling abort", this, err);
             tcp_abort(this->client_pcb);
             err = ERR_ABRT;
         }
-        this->free();
+        this->client_pcb = nullptr;
     }
     return err;
 }
 
 void TCPConnection::free()
 {
-    server->activeConnections--;
-    log_t("Freeing TCPConnection %p", this);
-    client_pcb = NULL;
+    watchdog_update();
     if (ws)
     {
-        log_t("Freeing ws %p", ws);
+        log_t("Freeing TCPConnection(%p)->ws %p", this, ws);
         delete ws;
-        ws = NULL;
+        ws = nullptr;
     }
-    recv_len = 0;
+    // recv_len = 0;
     if (ssl)
     {
-        log_t("Freeing ssl %p", ssl);
+        log_t("Freeing TCPConnection(%p)->ssl %p", this, ssl);
         wolfSSL_free(ssl);
+        ssl = nullptr;
     }
+}
 
-    ssl = NULL;
-    log_t("Freed TCPConnection %p", this);
+inline void TCPConnection::keepAlive()
+{
+    active = 1;
 }

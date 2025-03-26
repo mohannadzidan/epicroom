@@ -64,38 +64,39 @@ bool WebSocket::handle_handshake(struct TCPConnection *connection, HttpRequest *
     response.header("Sec-WebSocket-Accept", accept_key);
     response.send();
     connection->ws = new WebSocket(connection);
+    connection->timeout = 0;
     return true;
 }
 
 void WebSocket::handle()
 {
 
-    if (connection->recv_len < WS_HEADER_SIZE)
+    if (connection->server->recv_len < WS_HEADER_SIZE)
     {
         log_e("WebSocket::handle received Invalid WebSocket frame");
         return;
     }
-    WSHeader *header = reinterpret_cast<WSHeader *>(connection->buffer_recv);
-    if (connection->recv_len < header->size())
+    WSHeader *header = reinterpret_cast<WSHeader *>(connection->server->buffer_recv);
+    if (connection->server->recv_len < header->size())
     {
         log_e("WebSocket::handle received malformed ws");
         return;
     }
     size_t payload_len = header->getPayloadLength();
-    u8_t *payload = (u8_t *)&connection->buffer_recv[header->size()];
+    u8_t *payload = (u8_t *)&connection->server->buffer_recv[header->size()];
     u32_t masking_key_offset = reinterpret_cast<uint8_t *>(&header->basic.masking_key) - reinterpret_cast<uint8_t *>(header);
 
     log_t_rx(opcode_name(header->basic.opcode),
              "src=%s:%d len=%u",
              ip4addr_ntoa(&connection->client_pcb->remote_ip),
              connection->client_pcb->remote_port,
-             connection->recv_len);
+             connection->server->recv_len);
 
     switch (header->basic.opcode)
     {
     case WS_OPCODE_CLOSE:
         closed = 1;
-        close();
+        connection->close();
         return;
     case WS_OPCODE_PING:
         pong();
@@ -163,12 +164,12 @@ void WebSocket::pong()
     write_frame(WS_OPCODE_PONG, 0, NULL);
 }
 
-void WebSocket::close()
+
+void WebSocket::writeCloseFrame()
 {
     if (!closed)
     {
         write_frame(WS_OPCODE_CLOSE, 0, NULL);
         closed = true;
     }
-    connection->close();
 }

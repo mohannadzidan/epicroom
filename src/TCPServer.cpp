@@ -9,13 +9,22 @@
 #include <wolfssl/ssl.h>
 #include "wolfssl/internal.h"
 #include "errors.h"
+#include "hardware/watchdog.h"
 
 unsigned int privkey1_pem_len = 301;
 
+static LinkedList<TCPServer> allServers;
+
+LinkedList<TCPServer> TCPServer::allServers = LinkedList<TCPServer>();
+
+// TODO: this should be member of TCPServer
 WOLFSSL_CTX *ctx;
+// FIXME: this should be deleted
 TCPServer *server;
 void wolfssl_init()
 {
+    File file;
+
     // Initialize WolfSSL library
     // wolfSSL_Debugging_ON();
     wolfSSL_Init();
@@ -27,15 +36,14 @@ void wolfssl_init()
         printf("Failed to create SSL context\n");
         return;
     }
-
-    File file;
-
+    watchdog_update();
     if (!readFile("/certs/privkey.pem", &file))
     {
         log_e("privkey.pem not found!");
         return;
     }
     int loadKeyResult = wolfSSL_CTX_use_PrivateKey_buffer(ctx, file.content, file.size, WOLFSSL_FILETYPE_PEM);
+    watchdog_update();
     // Load the private key
     if (loadKeyResult != SSL_SUCCESS)
     {
@@ -49,39 +57,61 @@ void wolfssl_init()
         return;
     }
     int loadCertResult = wolfSSL_CTX_use_certificate_chain_buffer(ctx, file.content, file.size);
+    watchdog_update();
+
     // Load the server certificate
     if (loadCertResult != SSL_SUCCESS)
     {
         printf("Failed to load certificate code=%d\n", loadCertResult);
         return;
     }
-
-    // if (wolfSSL_CTX_use_PrivateKey_file(ctx, "server.key", SSL_FILETYPE_PEM) != SSL_SUCCESS) {
-    //     printf("Failed to load private key\n");
-    //     return;
-    // }
 }
 
 TCPServer::TCPServer()
 {
-
     connections = nullptr;
+    allServers.add(this);
 }
 
 TCPServer::~TCPServer()
 {
-    TCPConnection *current = connections;
+    log_t("free TCP server %p", this);
+    TCPConnection *current = server->connections;
     while (current)
     {
         TCPConnection *next = current->linked_next;
         delete current;
         current = next;
     }
-    free(connections);
-    // if (state)
-    // {
-    //     free(state);
-    // }
+    allServers.remove(this);
+}
+
+void TCPServer::poll()
+{
+
+  
+
+    uint32_t msSinceBoot = to_ms_since_boot(get_absolute_time());
+    for (auto *tcpServer : allServers)
+    {
+        TCPConnection *connection = tcpServer->connections;
+        while (connection)
+        {
+            TCPConnection *next = connection->linked_next;
+            if (connection->timeout != 0 && connection->active)
+            {
+                connection->expiresAt = msSinceBoot + connection->timeout;
+                connection->active = false;
+            }
+            if (!connection->client_pcb ||
+                (connection->timeout != 0 && msSinceBoot > connection->expiresAt))
+            {
+                log_t("connection %p died after timeout", connection);
+                delete connection;
+            }
+            connection = next;
+        }
+    }
 }
 
 TCPConnection *TCPServer::allocConnection()
@@ -100,7 +130,6 @@ bool TCPServer::open(u16_t port)
         log_e("Failed to create PCB");
         return false;
     }
-
     err_t err = tcp_bind(pcb, NULL, port);
     if (err)
     {
@@ -117,8 +146,8 @@ bool TCPServer::open(u16_t port)
     }
     server = this;
     wolfssl_init();
-    tcp_arg(pcb, this);
     tcp_accept(pcb, &TCPServer::accept);
+    tcp_arg(pcb, this);
     log_i("TCP server started on %s:%u", ip4addr_ntoa(&ip), port);
     return true;
 }
@@ -138,12 +167,13 @@ void TCPServer::run()
 
 err_t sent(void *arg, tcp_pcb *tpcb, u16_t len)
 {
-    printf("--- data sent ----\n");
+    watchdog_update();
     return ERR_OK;
 }
 
 err_t TCPServer::accept(void *serverPointer, tcp_pcb *client_pcb, err_t err)
 {
+    watchdog_update();
     ip4_addr_t ip;
     if (err != ERR_OK || client_pcb == NULL)
     {
@@ -170,7 +200,7 @@ err_t TCPServer::accept(void *serverPointer, tcp_pcb *client_pcb, err_t err)
     conn->client_pcb = client_pcb;
     conn->server = server;
     log_t("<-TCP-- New TCP connection %s:%d", ip4addr_ntoa(&client_pcb->remote_ip), client_pcb->remote_port);
-    ret = wolfSSL_SetIO_LwIP(conn->ssl, client_pcb, TCPServer::recv, nullptr, conn);
+    ret = wolfSSL_SetIO_LwIP(conn->ssl, client_pcb, TCPServer::recv, sent, conn);
     if (ret != 0)
     {
         log_e("Failed to allocate wolfSSL_SetIO_LwIP %d", err);
@@ -186,8 +216,12 @@ err_t TCPServer::accept(void *serverPointer, tcp_pcb *client_pcb, err_t err)
 
 void TCPServer::onError(void *arg, err_t err)
 {
+    watchdog_update();
+    // FIXME: this is not the right way of iterating over connections
     if (err == ERR_RST)
     {
+        // WOLFSSL_LWIP_NATIVE_STATE* ctx = reinterpret_cast<WOLFSSL_LWIP_NATIVE_STATE*>(arg);
+        // TCPConnection * connection = ctx
         for (int i = 0; i < MAX_CONNECTIONS; i++)
         {
             TCPConnection *connection = &server->connections[i];
@@ -206,6 +240,7 @@ void TCPServer::onError(void *arg, err_t err)
 
 err_t TCPServer::recv(void *connectionPtr, tcp_pcb *tpcb, pbuf *data, err_t err)
 {
+    watchdog_update();
     if (err != ERR_OK || tpcb == NULL)
     {
         log_e("Failure in recv error=%d", err);
@@ -215,7 +250,6 @@ err_t TCPServer::recv(void *connectionPtr, tcp_pcb *tpcb, pbuf *data, err_t err)
     int ret = 0;
     if (!connection->ssl->options.handShakeDone)
     {
-        log_d("<-TCP-- incoming handshake acceptState=%d", connection->ssl->options.acceptState);
         wolfSSL_accept(connection->ssl);
         return ERR_OK;
     }
@@ -230,19 +264,14 @@ err_t TCPServer::recv(void *connectionPtr, tcp_pcb *tpcb, pbuf *data, err_t err)
 
     cyw43_arch_lwip_check();
     int readLength = connection->read();
-    if (readLength < 0)
-    {
-        connection->close();
-        return ERR_CLSD;
-    }
-    if (readLength == 0)
+    if (readLength <= 0)
     {
         log_d("connection closed");
         connection->close();
         return ERR_OK;
     }
-    connection->recv_len = readLength;
-    connection->buffer_recv[readLength] = '\0';
+    connection->server->recv_len = readLength;
+    connection->server->buffer_recv[readLength] = '\0';
     // tcp_recved(tpcb, data->tot_len);
     // pbuf_free(data);
     HttpRequest request;
@@ -262,8 +291,9 @@ err_t TCPServer::recv(void *connectionPtr, tcp_pcb *tpcb, pbuf *data, err_t err)
         connection->ws->handle();
         return ERR_OK;
     }
-    else if (parseHttp(connection->buffer_recv, connection->recv_len, &request))
+    if (parseHttp(connection->server->buffer_recv, connection->server->recv_len, &request))
     {
+        watchdog_update();
         log_t("<-HTTP-- %s \"%s\" src=%s:%d handshake=%d connection=%p",
               request.method, request.path,
               ip4addr_ntoa(&tpcb->remote_ip), tpcb->remote_port, connection->ssl->options.handShakeDone, connection);
@@ -279,10 +309,11 @@ err_t TCPServer::recv(void *connectionPtr, tcp_pcb *tpcb, pbuf *data, err_t err)
         if (!strcmp("GET", request.method) && (readFile("/web", request.path, &f) || readFile("/web", "/index.html", &f)))
         {
             const char *cacheControl = !strcmp(f.mime_type, "text/html") ? "no-cache, must-revalidate" : "public, max-age=31536000, immutable";
+            connection->timeout = 30000;
             response.status(200);
             response.header("Content-Encoding", "gzip");
             response.header("Connection", "keep-alive");
-            response.header("Keep-Alive ", " timeout=30, max=200");
+            response.header("Keep-Alive ", "timeout=30, max=200");
             response.header("Cache-Control", cacheControl);
             response.header("Content-Length", f.size);
             response.header("Content-Type", f.mime_type);
@@ -290,7 +321,16 @@ err_t TCPServer::recv(void *connectionPtr, tcp_pcb *tpcb, pbuf *data, err_t err)
             return ERR_OK;
         }
     }
-
+    log_d("Received a request i don't understand data(string)='%.s'", server->recv_len, server->buffer_recv);
+    printf("-------Data %d bytes--------\n", readLength);
+    for (int i = 0; i < server->recv_len; i++)
+    {
+        if (server->buffer_recv[i] <= 0)
+            printf("·");
+        else
+            printf("%c", server->buffer_recv[i]);
+    }
+    printf("\n---------------------------\n\n");
     response.status(418);
     response.header("Cache-Control", "no-cache, must-revalidate");
     response.header("Content-Length", 13);

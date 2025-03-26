@@ -9,6 +9,7 @@
 #include <time.h>
 #include "hardware.h"
 
+bool rebootedByWatchdog = false;
 time_t myTime(time_t *t)
 {
     *t = (((2023 - 1970) * 12 + 8) * 30 * 24 * 60 * 60);
@@ -38,7 +39,6 @@ void run_tcp_server()
         log_e("Failed to open TCP server");
         return;
     }
-    uint32_t msSinceBoot = to_ms_since_boot(get_absolute_time());
 
     while (true)
     {
@@ -48,20 +48,21 @@ void run_tcp_server()
         cyw43_arch_wait_for_work_until(make_timeout_time_ms(1000));
 #else
         watchdog_update();
-        uint32_t latency = to_ms_since_boot(get_absolute_time()) - msSinceBoot;
-        msSinceBoot = to_ms_since_boot(get_absolute_time());
-        log_i("[sys] latency=%d heap=%0.2f%% connections=%d", latency, (float)(getTotalHeap() - getFreeHeap()) / (float)getTotalHeap() * 100, tcpServer.activeConnections);
+        log_i("[sys] heap=%0.2f%% connections=%d",
+              (float)(getTotalHeap() - getFreeHeap()) / (float)getTotalHeap() * 100,
+              TCPConnection::activeCount);
         sleep_ms(1000);
         ledToggle();
-        for (int i = 0; i < MEMP_NUM_TCP_PCB; i++)
-        {
-            if (tcpServer.connections[i].client_pcb != NULL && tcpServer.connections[i].ws != nullptr && !tcpServer.connections[i].ws->closed)
-            {
+        TCPServer::poll();
+        // for (int i = 0; i < MEMP_NUM_TCP_PCB; i++)
+        // {
+        //     if (tcpServer.connections[i].client_pcb != NULL && tcpServer.connections[i].ws != nullptr && !tcpServer.connections[i].ws->closed)
+        //     {
 
-                tcpServer.connections[i].ws->ping();
-                tcpServer.connections[i].ws->write_frame(WS_OPCODE_TEXT_FRAME, 13, (const uint8_t *)"Hello, World!");
-            }
-        }
+        //         tcpServer.connections[i].ws->ping();
+        //         tcpServer.connections[i].ws->write_frame(WS_OPCODE_TEXT_FRAME, 13, (const uint8_t *)"Hello, World!");
+        //     }
+        // }
 #endif
     }
 }
@@ -69,9 +70,9 @@ void run_tcp_server()
 int main()
 {
     stdio_init_all();
-    bool rebootedByWatchdog = watchdog_enable_caused_reboot();
+    rebootedByWatchdog = watchdog_enable_caused_reboot();
 
-    watchdog_enable(60000, 1);
+    watchdog_enable(8388, 1);
     if (cyw43_arch_init())
     {
         log_e("Failed to initialize cyw43");
@@ -80,7 +81,7 @@ int main()
 
     watchdog_update();
 
-    sleep_ms(5000);
+    sleep_ms(1000);
     if (rebootedByWatchdog)
     {
         log_e("Rebooted by Watchdog!\n");
