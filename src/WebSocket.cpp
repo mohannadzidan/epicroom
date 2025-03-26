@@ -76,7 +76,7 @@ void WebSocket::handle()
         log_e("WebSocket::handle received Invalid WebSocket frame");
         return;
     }
-    WSHeader *header = reinterpret_cast<WSHeader *>(connection->server->buffer_recv);
+    auto header = reinterpret_cast<WSHeader *>(connection->server->buffer_recv);
     if (connection->server->recv_len < header->size())
     {
         log_e("WebSocket::handle received malformed ws");
@@ -125,7 +125,7 @@ void WebSocket::handle()
 
 void WebSocket::apply_mask(uint8_t *payload, size_t payload_len, u32_t maskingKey)
 {
-    const u8_t *mask_bytes = reinterpret_cast<const u8_t *>(&maskingKey);
+    const auto mask_bytes = reinterpret_cast<const u8_t *>(&maskingKey);
     for (size_t i = 0; i < payload_len; i++)
     {
         payload[i] ^= mask_bytes[i % 4];

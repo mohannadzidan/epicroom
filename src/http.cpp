@@ -15,7 +15,7 @@ bool parseHttp(uint8_t *payload, size_t length, HttpRequest *request)
     }
 
     // Cast payload to char* for easier string manipulation
-    char *data = reinterpret_cast<char *>(payload);
+    auto data = reinterpret_cast<char *>(payload);
 
     // Find the end of the first line (request line)
     char *line_end = strstr(data, "\r\n");

@@ -13,14 +13,10 @@
 
 unsigned int privkey1_pem_len = 301;
 
-static LinkedList<TCPServer> allServers;
-
 LinkedList<TCPServer> TCPServer::allServers = LinkedList<TCPServer>();
 
 // TODO: this should be member of TCPServer
 WOLFSSL_CTX *ctx;
-// FIXME: this should be deleted
-TCPServer *server;
 void wolfssl_init()
 {
     File file;
@@ -76,7 +72,7 @@ TCPServer::TCPServer()
 TCPServer::~TCPServer()
 {
     log_t("free TCP server %p", this);
-    TCPConnection *current = server->connections;
+    TCPConnection *current = connections;
     while (current)
     {
         TCPConnection *next = current->linked_next;
@@ -88,8 +84,6 @@ TCPServer::~TCPServer()
 
 void TCPServer::poll()
 {
-
-  
 
     uint32_t msSinceBoot = to_ms_since_boot(get_absolute_time());
     for (auto *tcpServer : allServers)
@@ -106,7 +100,13 @@ void TCPServer::poll()
             if (!connection->client_pcb ||
                 (connection->timeout != 0 && msSinceBoot > connection->expiresAt))
             {
-                log_t("connection %p died after timeout", connection);
+                log_t("deleting connection %p client_pcb?=%d timeout?=%d timeout=%d now=%d expiresAt=%d",
+                      connection,
+                      connection->client_pcb == nullptr,
+                      connection->timeout != 0 && msSinceBoot > connection->expiresAt,
+                      connection->timeout,
+                      msSinceBoot,
+                      connection->expiresAt);
                 delete connection;
             }
             connection = next;
@@ -144,7 +144,6 @@ bool TCPServer::open(u16_t port)
         tcp_close(pcb);
         return false;
     }
-    server = this;
     wolfssl_init();
     tcp_accept(pcb, &TCPServer::accept);
     tcp_arg(pcb, this);
@@ -180,7 +179,7 @@ err_t TCPServer::accept(void *serverPointer, tcp_pcb *client_pcb, err_t err)
         log_e("Failure in accept (client_pcb is null?)=%d error=%d close=%d", client_pcb == NULL, err, client_pcb == NULL && tcp_close(client_pcb));
         return ERR_VAL;
     }
-    server = (TCPServer *)serverPointer;
+    auto server = reinterpret_cast<TCPServer *>(serverPointer);
     TCPConnection *conn = server->allocConnection();
     if (!conn)
     {
@@ -199,7 +198,7 @@ err_t TCPServer::accept(void *serverPointer, tcp_pcb *client_pcb, err_t err)
 
     conn->client_pcb = client_pcb;
     conn->server = server;
-    log_t("<-TCP-- New TCP connection %s:%d", ip4addr_ntoa(&client_pcb->remote_ip), client_pcb->remote_port);
+    log_t("<-TCP-- New TCP connection %p %s:%d", conn, ip4addr_ntoa(&client_pcb->remote_ip), client_pcb->remote_port);
     ret = wolfSSL_SetIO_LwIP(conn->ssl, client_pcb, TCPServer::recv, sent, conn);
     if (ret != 0)
     {
@@ -217,20 +216,12 @@ err_t TCPServer::accept(void *serverPointer, tcp_pcb *client_pcb, err_t err)
 void TCPServer::onError(void *arg, err_t err)
 {
     watchdog_update();
-    // FIXME: this is not the right way of iterating over connections
     if (err == ERR_RST)
     {
-        // WOLFSSL_LWIP_NATIVE_STATE* ctx = reinterpret_cast<WOLFSSL_LWIP_NATIVE_STATE*>(arg);
-        // TCPConnection * connection = ctx
-        for (int i = 0; i < MAX_CONNECTIONS; i++)
-        {
-            TCPConnection *connection = &server->connections[i];
-            if (connection->client_pcb != nullptr && ((void *)&connection->ssl->lwipCtx == arg))
-            {
-                log_t("clossing due to RST connection=%p", connection);
-                connection->close();
-            }
-        }
+        auto ctx = reinterpret_cast<WOLFSSL_LWIP_NATIVE_STATE *>(arg);
+        auto connection = reinterpret_cast<TCPConnection *>(ctx->arg);
+        log_t("connection %p has been reset", connection);
+        connection->close();
     }
     else
     {
@@ -246,7 +237,7 @@ err_t TCPServer::recv(void *connectionPtr, tcp_pcb *tpcb, pbuf *data, err_t err)
         log_e("Failure in recv error=%d", err);
         return ERR_VAL;
     }
-    TCPConnection *connection = (TCPConnection *)connectionPtr;
+    auto connection = reinterpret_cast<TCPConnection *>(connectionPtr);
     int ret = 0;
     if (!connection->ssl->options.handShakeDone)
     {
@@ -266,7 +257,7 @@ err_t TCPServer::recv(void *connectionPtr, tcp_pcb *tpcb, pbuf *data, err_t err)
     int readLength = connection->read();
     if (readLength <= 0)
     {
-        log_d("connection closed");
+        log_d("connection closed readLength=%d", readLength);
         connection->close();
         return ERR_OK;
     }
@@ -321,14 +312,14 @@ err_t TCPServer::recv(void *connectionPtr, tcp_pcb *tpcb, pbuf *data, err_t err)
             return ERR_OK;
         }
     }
-    log_d("Received a request i don't understand data(string)='%.s'", server->recv_len, server->buffer_recv);
+    log_d("Received a request i don't understand data(string)='%.s'", connection->server->recv_len, connection->server->buffer_recv);
     printf("-------Data %d bytes--------\n", readLength);
-    for (int i = 0; i < server->recv_len; i++)
+    for (int i = 0; i < connection->server->recv_len; i++)
     {
-        if (server->buffer_recv[i] <= 0)
+        if (connection->server->buffer_recv[i] <= 0)
             printf("·");
         else
-            printf("%c", server->buffer_recv[i]);
+            printf("%c", connection->server->buffer_recv[i]);
     }
     printf("\n---------------------------\n\n");
     response.status(418);
@@ -336,16 +327,4 @@ err_t TCPServer::recv(void *connectionPtr, tcp_pcb *tpcb, pbuf *data, err_t err)
     response.header("Content-Length", 13);
     response.send((const uint8_t *)"I'm a teapot", 13, 0);
     return ERR_OK;
-}
-
-TCPConnection *TCPServer::getConnection(tcp_pcb *tpcb)
-{
-    for (int i = 0; i < MEMP_NUM_TCP_PCB; i++)
-    {
-        if (connections[i].client_pcb == tpcb)
-        {
-            return &connections[i];
-        }
-    }
-    return NULL;
 }

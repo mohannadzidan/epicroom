@@ -31,7 +31,6 @@ public:
     bool open(u16_t port);
     void run();
     TCPConnection *allocConnection();
-    TCPConnection *getConnection(tcp_pcb *tpcb);
     TCPConnection *connections;
     uint8_t buffer_recv[2048];
     int recv_len;

@@ -16,7 +16,7 @@ TCPConnection::TCPConnection(TCPServer *server)
     this->client_pcb = nullptr;
     this->ws = nullptr;
     this->timeout = 30000;
-    this->expiresAt = 0;
+    this->expiresAt = UINT32_MAX;
     activeCount++;
     if (server->connections == nullptr)
     {
@@ -94,6 +94,7 @@ err_t TCPConnection::write(const void *buffer_send, size_t send_len, u8_t flags)
         else if (ret == WOLFSSL_ERROR_ZERO_RETURN)
         {
             // connection closed
+            log_t("connection closed %p due to WOLFSSL_ERROR_ZERO_RETURN", this);
             close();
             return APP_ERR_CONNECTION_CLOSED;
         }
@@ -122,6 +123,7 @@ int TCPConnection::read()
         else if (ret == WOLFSSL_ERROR_ZERO_RETURN)
         {
             // connection closed
+            log_t("connection closed %p due to WOLFSSL_ERROR_ZERO_RETURN", this);
             close();
             return APP_ERR_CONNECTION_CLOSED;
         }
