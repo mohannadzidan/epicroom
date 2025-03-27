@@ -1,6 +1,6 @@
 #include "pico/stdlib.h"
 #include "hardware.h"
-#include "log.h"
+#include "utils/log.h"
 
 #ifdef CYW43_WL_GPIO_LED_PIN
 #include "pico/cyw43_arch.h"

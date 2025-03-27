@@ -95,7 +95,7 @@
         "typeinfo": "cpp",
         "cyw43_arch.h": "c",
         "tcp.h": "c",
-        "sha1.h": "c",
+        "utils/sha1.h": "c",
         "fstream": "c",
         "sstream": "c",
         "cassert": "cpp",

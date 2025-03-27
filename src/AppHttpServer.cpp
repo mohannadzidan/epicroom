@@ -1,8 +1,21 @@
 #include "AppHttpServer.h"
-#include "log.h"
-#include "fs.h"
+#include "utils/log.h"
+#include "utils/fs.h"
 
 AppHttpServer::AppHttpServer(bool tls) : HttpServer(tls) {}
+
+void AppHttpServer::receive(TCPConnection *connection)
+{
+    if (connection->ws)
+    {
+        connection->ws->handle();
+        return;
+    }
+    else
+    {
+        HttpServer::receive(connection);
+    }
+}
 
 void AppHttpServer::handler(HttpRequest *request, HttpResponse *response)
 {

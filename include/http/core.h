@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
-#include "TCPServer.h"
+#include "tcp/server.h"
 #include "errors.h"
 
 #define HTTP_VERSION "HTTP/1.1"

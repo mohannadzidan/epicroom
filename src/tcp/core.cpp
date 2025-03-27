@@ -1,9 +1,9 @@
 
-#include "TCPConnection.h"
+#include "tcp/core.h"
 #include "errors.h"
 #include "lwip/tcp.h"
 #include "pico/cyw43_arch.h"
-#include "log.h"
+#include "utils/log.h"
 #include "hardware/watchdog.h"
 
 int TCPConnection::activeCount = 0;

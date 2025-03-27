@@ -78,11 +78,11 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-file(GLOB sourceFiles
+file(GLOB_RECURSE sourceFiles
      "src/*.cpp"
      "src/*.c"
 )
-file(GLOB headerFiles
+file(GLOB_RECURSE headerFiles
      "include/*.h"
 )
 

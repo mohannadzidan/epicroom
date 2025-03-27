@@ -1,6 +1,6 @@
-#include "http.h"
-#include "TCPConnection.h"
-#include "log.h"
+#include "http/core.h"
+#include "tcp/core.h"
+#include "utils/log.h"
 #include <string.h>
 #include "errors.h"
 
@@ -101,8 +101,28 @@ void HttpResponse::status(u16_t statusCode)
     int writtenHeadersLength = snprintf(headersBuffer, HTTP_RESPONSE_HEADER_BUFFER,
                                         HTTP_VERSION " %s\r\n",
                                         statusCode == 200   ? "200 Ok"
+                                        : statusCode == 201 ? "201 Created"
+                                        : statusCode == 204 ? "204 No Content"
+                                        : statusCode == 301 ? "301 Moved Permanently"
+                                        : statusCode == 302 ? "302 Found"
+                                        : statusCode == 304 ? "304 Not Modified"
+                                        : statusCode == 307 ? "307 Temporary Redirect"
+                                        : statusCode == 308 ? "308 Permanent Redirect"
+                                        : statusCode == 400 ? "400 Bad Request"
+                                        : statusCode == 401 ? "401 Unauthorized"
+                                        : statusCode == 403 ? "403 Forbidden"
+                                        : statusCode == 404 ? "404 Not Found"
+                                        : statusCode == 405 ? "405 Method Not Allowed"
+                                        : statusCode == 408 ? "408 Request Timeout"
+                                        : statusCode == 409 ? "409 Conflict"
+                                        : statusCode == 413 ? "413 Payload Too Large"
+                                        : statusCode == 415 ? "415 Unsupported Media Type"
+                                        : statusCode == 429 ? "429 Too Many Requests"
                                         : statusCode == 500 ? "500 Internal Server Error"
-                                        : statusCode == 418 ? "418 I'm a teapot"
+                                        : statusCode == 501 ? "501 Not Implemented"
+                                        : statusCode == 502 ? "502 Bad Gateway"
+                                        : statusCode == 503 ? "503 Service Unavailable"
+                                        : statusCode == 504 ? "504 Gateway Timeout"
                                         : statusCode == 101 ? "101 Switching Protocols"
                                                             : "500 Internal Server Error");
     connection->write(headersBuffer, writtenHeadersLength, TCP_WRITE_FLAG_MORE);

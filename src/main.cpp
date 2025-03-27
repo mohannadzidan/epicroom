@@ -1,8 +1,9 @@
 #include "pico/cyw43_arch.h"
 #include "pico/stdlib.h"
 #include "AppHttpServer.h"
-#include "WebSocket.h"
-#include "log.h"
+#include "HttpsRedirectionServer.h"
+#include "ws/websocket.h"
+#include "utils/log.h"
 #include <malloc.h>
 #include "assets_bundle.h"
 #include "hardware/watchdog.h"
@@ -31,7 +32,7 @@ uint32_t getFreeHeap(void)
 }
 
 AppHttpServer tcpServer = AppHttpServer(true);
-AppHttpServer httpServer = AppHttpServer(false);
+HttpsRedirectionServer httpServer = HttpsRedirectionServer();
 
 void run_tcp_server()
 {

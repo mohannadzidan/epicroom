@@ -2,8 +2,8 @@
 
 #include "lwip/tcp.h"
 #include "wolfssl/ssl.h"
-#include "TCPConnection.h"
-#include "linked.h"
+#include "tcp/core.h"
+#include "utils/linked.h"
 
 #define MAX_CONNECTIONS MEMP_NUM_TCP_PCB
 

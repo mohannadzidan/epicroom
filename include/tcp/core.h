@@ -3,8 +3,8 @@
 #include <iterator>
 #include "lwip/tcp.h"
 #include "wolfssl/ssl.h"
-#include "TCPServer.h"
-#include "WebSocket.h"
+#include "tcp/server.h"
+#include "ws/websocket.h"
 
 #define BUF_SIZE (1024 * 2)
 class TCPServer;

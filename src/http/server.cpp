@@ -1,15 +1,6 @@
-#include "HTTPServer.h"
-#include "log.h"
-#include "TCPServer.h"
-#include "WebSocket.h"
-#include "pico/cyw43_arch.h"
-#include "log.h"
-#include "fs.h"
-#include "http.h"
-#include <wolfssl/wolfcrypt/settings.h>
-#include <wolfssl/ssl.h>
-#include "wolfssl/internal.h"
-#include "errors.h"
+#include "http/server.h"
+#include "utils/log.h"
+#include "http/core.h"
 #include "hardware/watchdog.h"
 
 HttpServer::HttpServer(bool tls) : TCPServer(tls)
@@ -22,13 +13,9 @@ HttpServer::~HttpServer()
 
 void HttpServer::receive(TCPConnection *connection)
 {
+    watchdog_update();
     HttpRequest request;
     HttpResponse response(connection);
-    if (connection->ws)
-    {
-        connection->ws->handle();
-        return;
-    }
     if (parseHttp(connection->server->buffer_recv, connection->server->recv_len, &request))
     {
 
@@ -38,7 +25,6 @@ void HttpServer::receive(TCPConnection *connection)
               ip4addr_ntoa(&connection->client_pcb->remote_ip),
               connection->client_pcb->remote_port,
               connection);
-        watchdog_update();
         handler(&request, &response);
     }
     else

@@ -1,11 +1,10 @@
 #include "http/server.h"
 
-class AppHttpServer : public HttpServer
+class HttpsRedirectionServer : public HttpServer
 {
 public:
-    AppHttpServer(bool tls);
+    HttpsRedirectionServer();
 
 protected:
     void handler(HttpRequest *request, HttpResponse *response) override;
-    void receive(TCPConnection* connection) override;
 };

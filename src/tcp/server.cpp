@@ -1,10 +1,10 @@
 #include <stdio.h>
-#include "TCPServer.h"
-#include "WebSocket.h"
+#include "tcp/server.h"
+#include "ws/websocket.h"
 #include "pico/cyw43_arch.h"
-#include "log.h"
-#include "fs.h"
-#include "http.h"
+#include "utils/log.h"
+#include "utils/fs.h"
+#include "http/core.h"
 #include <wolfssl/wolfcrypt/settings.h>
 #include <wolfssl/ssl.h>
 #include "wolfssl/internal.h"

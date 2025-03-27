@@ -1,7 +1,7 @@
 #include <string.h>
-#include "fs.h"
+#include "utils/fs.h"
 #include "assets_bundle.h"
-#include "log.h"
+#include "utils/log.h"
 
 bool readFile(const char *filename, File *file)
 {
