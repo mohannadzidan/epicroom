@@ -35,10 +35,19 @@ void AppHttpServer::handler(HttpRequest *request, HttpResponse *response)
         response->status(200);
         response->header("Content-Encoding", "gzip");
         response->header("Connection", "keep-alive");
-        response->header("Keep-Alive ", "timeout=30, max=200");
+        response->header("Keep-Alive", "timeout=30, max=200");
         response->header("Cache-Control", cacheControl);
         response->header("Content-Length", file.size);
         response->header("Content-Type", file.mime_type);
-        response->send(file.content, file.size);
+        if (lwip_available_send_mem >= file.size)
+        {
+            response->send(file.content, file.size);
+        }
+        else
+        {
+            log_t("send file %s differed", request->path);
+            response->send();
+            TCPServer::writeAsync(response->connection, reinterpret_cast<const void *>(file.content), file.size);
+        }
     }
 }

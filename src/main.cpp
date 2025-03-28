@@ -54,13 +54,15 @@ void run_tcp_server()
 #if PICO_CYW43_ARCH_POLL
         cyw43_arch_poll();
         cyw43_arch_wait_for_work_until(make_timeout_time_ms(1000));
+        watchdog_update();
+        TCPServer::poll();
 #else
         watchdog_update();
-        log_i("[sys] heap=%0.2f%% connections=%d",
-              (float)(getTotalHeap() - getFreeHeap()) / (float)getTotalHeap() * 100,
-              TCPConnection::activeCount);
-        sleep_ms(1000);
-        ledToggle();
+        // log_i("[sys] heap=%0.2f%% connections=%d",
+        //       (float)(getTotalHeap() - getFreeHeap()) / (float)getTotalHeap() * 100,
+        //       TCPConnection::activeCount);
+        // sleep_ms(1000);
+        // ledToggle();
         TCPServer::poll();
         // for (int i = 0; i < MEMP_NUM_TCP_PCB; i++)
         // {

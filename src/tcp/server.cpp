@@ -14,6 +14,7 @@
 // #define LOG_CONNECTION_POLL
 
 LinkedList<TCPServer *> TCPServer::allServers = LinkedList<TCPServer *>();
+LinkedList<DifferedWrite *> TCPServer::differedWrites = LinkedList<DifferedWrite *>();
 
 WOLFSSL_CTX *tlsCtx;
 void loadSSLCertificates()
@@ -82,6 +83,37 @@ TCPServer::~TCPServer()
 
 void TCPServer::poll()
 {
+    // log_d("lwip memory avail=%u max=%u used=%u", lwip_stats.mem.avail, lwip_stats.mem.max, lwip_stats.mem.used);
+
+    while (differedWrites.head)
+    {
+        auto allowedMemory = lwip_available_send_mem;
+        if (allowedMemory == 0)
+            break;
+        auto msg = reinterpret_cast<DifferedWrite *>(differedWrites.head);
+        if (!msg->connection || !msg->connection->client_pcb)
+        {
+            differedWrites.remove(msg);
+            delete msg;
+            continue;
+        }
+
+        if (allowedMemory >= msg->size)
+        {
+            msg->connection->write(msg->buffer, msg->size);
+            differedWrites.remove(msg);
+            delete msg;
+        }
+        else if (allowedMemory > 0)
+        {
+            msg->connection->write(msg->buffer, allowedMemory);
+            msg->buffer += allowedMemory;
+            msg->size -= allowedMemory;
+            differedWrites.remove(msg);
+            differedWrites.add(msg);
+            break;
+        }
+    }
 
     uint32_t msSinceBoot = to_ms_since_boot(get_absolute_time());
     for (auto tcpServer : allServers)
@@ -292,4 +324,13 @@ err_t TCPServer::recv(void *connectionPtr, tcp_pcb *tpcb, pbuf *data, err_t err)
     }
     server->receive(connection);
     return ERR_OK;
+}
+
+void TCPServer::writeAsync(TCPConnection *connection, const void *data, size_t len)
+{
+    auto w = new DifferedWrite();
+    w->connection = connection;
+    w->buffer = reinterpret_cast<const u8_t *>(data);
+    w->size = len;
+    differedWrites.add(w);
 }
